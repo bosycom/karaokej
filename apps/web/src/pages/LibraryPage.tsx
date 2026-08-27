@@ -1,13 +1,17 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { FiList, FiSettings } from 'react-icons/fi';
 import { LibraryStatusDto, TrackDto } from '@karaokej/shared';
 import { api } from '../api';
 import { Modal } from '../components/Modal';
+import { QueueList } from '../components/QueueList';
 import { formatDuration, lyricBadge } from '../format';
 import { MODAL_IDS } from '../modals/dismissedModals';
 import { useConfirmModal } from '../modals/useConfirmModal';
-import { useSession, trackLabel } from '../session/SessionProvider';
+import { pageWindow } from '../pagination/pageWindow';
+import { useSession } from '../session/SessionProvider';
 import { PlayerBar } from '../components/PlayerBar';
+import { StarRating } from '../components/StarRating';
 
 export function LibraryPage() {
   const { state, connected, isPlayer, clientId } = useSession();
@@ -20,11 +24,12 @@ export function LibraryPage() {
   const [total, setTotal] = useState(0);
   const [status, setStatus] = useState<LibraryStatusDto | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const limit = 50;
+  const [minRating, setMinRating] = useState(0);
+  const limit = 15;
 
-  const loadTracks = async (q: string, p: number) => {
+  const loadTracks = async (q: string, p: number, rating = minRating) => {
     try {
-      const result = await api.tracks(q, p, limit);
+      const result = await api.tracks(q, p, limit, rating);
       setTracks(result.items);
       setTotal(result.total);
       setError(null);
@@ -42,8 +47,16 @@ export function LibraryPage() {
   };
 
   useEffect(() => {
-    void loadTracks(query, page);
-  }, [query, page]);
+    void loadTracks(query, page, minRating);
+  }, [query, page, minRating]);
+
+  const prevScanRunning = useRef(false);
+  useEffect(() => {
+    if (prevScanRunning.current && !state.jobs.scan.running) {
+      void loadTracks(query, page, minRating);
+    }
+    prevScanRunning.current = state.jobs.scan.running;
+  }, [state.jobs.scan.running, query, page, minRating]);
 
   useEffect(() => {
     void loadStatus();
@@ -58,7 +71,23 @@ export function LibraryPage() {
   const resetSearch = () => {
     setInputValue('');
     setQuery('');
+    setMinRating(0);
     setPage(1);
+  };
+
+  const setTrackRating = async (trackId: number, rating: number) => {
+    try {
+      const updated = await api.setTrackRating(trackId, rating);
+      setTracks((prev) =>
+        prev.map((track) => (track.id === trackId ? { ...track, rating: updated.rating } : track)),
+      );
+      if (minRating > 0 && (updated.rating ?? 0) < minRating) {
+        await loadTracks(query, page, minRating);
+      }
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   };
 
   const fetchTrackLyrics = async (trackId: number) => {
@@ -94,6 +123,7 @@ export function LibraryPage() {
   };
 
   const pages = Math.max(1, Math.ceil(total / limit));
+  const visiblePages = pageWindow(page, pages);
   const modalCopy =
     confirmModal.dismissId === MODAL_IDS.scanHelp
       ? {
@@ -142,7 +172,7 @@ export function LibraryPage() {
     <div className="app-shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">Local karaoke appliance</p>
+          <p className="eyebrow">Perhaps I can&apos;t sing well, but it is...</p>
           <h1>Karaokej</h1>
         </div>
         <div className="topbar-actions">
@@ -157,8 +187,8 @@ export function LibraryPage() {
               Play audio here
             </button>
           )}
-          <Link className="topbar-link" to="/settings">
-            Settings
+          <Link className="topbar-link icon-btn" to="/settings" title="Settings" aria-label="Settings">
+            <FiSettings aria-hidden />
           </Link>
           <Link className="karaoke-link" to="/karaoke">
             Open Karaoke
@@ -208,9 +238,22 @@ export function LibraryPage() {
               onChange={(event) => setInputValue(event.target.value)}
               autoComplete="off"
             />
+            <label className="rating-filter">
+              <span>Min</span>
+              <StarRating
+                value={minRating}
+                immediate
+                compact
+                ariaLabel="Minimum rating"
+                onConfirm={(rating) => {
+                  setPage(1);
+                  setMinRating(rating);
+                }}
+              />
+            </label>
             <button
               type="button"
-              disabled={inputValue === '' && query === ''}
+              disabled={inputValue === '' && query === '' && minRating === 0}
               onClick={resetSearch}
             >
               Reset
@@ -223,6 +266,9 @@ export function LibraryPage() {
             <ul className="track-list">
               {tracks.map((track) => {
                 const badge = lyricBadge(track.lyricStatus);
+                const fetching = fetchingIds.has(track.id);
+                const canFetch = track.lyricStatus !== 'present';
+                const fetchLabel = fetching ? 'Fetching…' : 'Fetch lyric';
                 return (
                   <li key={track.id}>
                     <div>
@@ -233,20 +279,40 @@ export function LibraryPage() {
                       </span>
                     </div>
                     <div className="track-meta">
-                      <span className={`badge ${badge.tone}`}>{badge.label}</span>
+                      {canFetch ? (
+                        <button
+                          type="button"
+                          className={`badge ${badge.tone} badge-fetch`}
+                          disabled={fetching}
+                          onClick={() => void fetchTrackLyrics(track.id)}
+                          title={fetchLabel}
+                          aria-label={fetchLabel}
+                        >
+                          <span className="badge-idle">
+                            {fetching ? 'Fetching…' : badge.label}
+                          </span>
+                          {!fetching && (
+                            <span className="badge-action">Fetch lyric</span>
+                          )}
+                        </button>
+                      ) : (
+                        <span className={`badge ${badge.tone}`}>{badge.label}</span>
+                      )}
                       <span className="time">{formatDuration(track.durationMs)}</span>
+                      <StarRating
+                        value={track.rating}
+                        compact
+                        ariaLabel={`Rate ${track.title}`}
+                        onConfirm={(rating) => setTrackRating(track.id, rating)}
+                      />
                       <button
                         type="button"
-                        disabled={
-                          track.lyricStatus === 'present' ||
-                          fetchingIds.has(track.id)
-                        }
-                        onClick={() => void fetchTrackLyrics(track.id)}
+                        className="icon-btn"
+                        onClick={() => void api.addToQueue(track.id)}
+                        title="Queue"
+                        aria-label="Queue"
                       >
-                        {fetchingIds.has(track.id) ? 'Fetching…' : 'Fetch lyrics'}
-                      </button>
-                      <button type="button" onClick={() => void api.addToQueue(track.id)}>
-                        Queue
+                        <FiList aria-hidden />
                       </button>
                     </div>
                   </li>
@@ -258,7 +324,20 @@ export function LibraryPage() {
             <button type="button" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
               Previous
             </button>
-            <span>
+            <div className="pager-pages">
+              {visiblePages.map((p) =>
+                p === page ? (
+                  <span key={p} className="pager-current" aria-current="page">
+                    {p}
+                  </span>
+                ) : (
+                  <button key={p} type="button" className="pager-page" onClick={() => setPage(p)}>
+                    {p}
+                  </button>
+                ),
+              )}
+            </div>
+            <span className="pager-summary">
               Page {page} / {pages} · {total} songs
             </span>
             <button
@@ -276,41 +355,10 @@ export function LibraryPage() {
           {state.queue.length === 0 ? (
             <p className="empty">Queue is empty. Add a song from the library.</p>
           ) : (
-            <ol className="queue-list">
-              {state.queue.map((item, index) => {
-                const current = item.id === state.playback.currentQueueItemId;
-                return (
-                  <li key={item.id} className={current ? 'current' : ''}>
-                    <button
-                      type="button"
-                      className="queue-title"
-                      onClick={() => void api.playItem(item.id)}
-                    >
-                      {trackLabel(item.track)}
-                    </button>
-                    <div className="queue-actions">
-                      <button
-                        type="button"
-                        disabled={index === 0}
-                        onClick={() => void api.moveQueue(item.id, 'up')}
-                      >
-                        Up
-                      </button>
-                      <button
-                        type="button"
-                        disabled={index === state.queue.length - 1}
-                        onClick={() => void api.moveQueue(item.id, 'down')}
-                      >
-                        Down
-                      </button>
-                      <button type="button" onClick={() => void api.removeFromQueue(item.id)}>
-                        Remove
-                      </button>
-                    </div>
-                  </li>
-                );
-              })}
-            </ol>
+            <QueueList
+              items={state.queue}
+              currentQueueItemId={state.playback.currentQueueItemId}
+            />
           )}
         </aside>
       </div>
