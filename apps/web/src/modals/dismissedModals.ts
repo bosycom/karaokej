@@ -1,7 +1,7 @@
 const STORAGE_KEY = 'karaokej.dismissedModals';
 
 export const MODAL_IDS = {
-  scanHelp: 'scan-help',
+  scanHelp: 'scan-help-v2',
   lyricsHelp: 'lyrics-help',
 } as const;
 

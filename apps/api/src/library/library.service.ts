@@ -18,6 +18,13 @@ import {
   yieldEventLoop,
 } from './fs-utils';
 import { ratingFromMetadata, readRatingFromFile } from '../rating/rating-tags';
+import {
+  detectRootChange,
+  hasPathRebaseConflicts,
+  planPathRebase,
+} from './scan-root';
+
+const LIBRARY_SCAN_ROOT_KEY = 'library_scan_root';
 
 @Injectable()
 export class LibraryService {
@@ -208,6 +215,14 @@ export class LibraryService {
       message: 'Walking library…',
     });
     try {
+      this.maybeRebaseCataloguePaths(root);
+      if (this.scanCancelRequested) {
+        this.setJob('scan', {
+          running: false,
+          message: 'Scan cancelled',
+        });
+        return;
+      }
       const files = await walkAudioFiles(root, () => this.scanCancelRequested);
       if (this.scanCancelRequested) {
         this.setJob('scan', {
@@ -296,6 +311,8 @@ export class LibraryService {
         });
         tx(staleIds);
       }
+
+      this.setStoredScanRoot(root);
 
       this.setJob('scan', {
         running: false,
@@ -495,6 +512,88 @@ export class LibraryService {
         `Rating read failed for ${relativePath}: ${err instanceof Error ? err.message : err}`,
       );
     }
+  }
+
+  private getStoredScanRoot(): string | null {
+    const row = this.db.raw
+      .prepare(`SELECT value FROM app_settings WHERE key = ?`)
+      .get(LIBRARY_SCAN_ROOT_KEY) as { value: string } | undefined;
+    return row?.value ?? null;
+  }
+
+  private setStoredScanRoot(root: string): void {
+    this.db.raw
+      .prepare(
+        `INSERT INTO app_settings (key, value) VALUES (?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      )
+      .run(LIBRARY_SCAN_ROOT_KEY, root);
+  }
+
+  private maybeRebaseCataloguePaths(newRoot: string): void {
+    const storedRoot = this.getStoredScanRoot();
+    const change = detectRootChange(storedRoot, newRoot);
+
+    if (change.kind === 'unknown') {
+      const trackCount = (
+        this.db.raw.prepare(`SELECT COUNT(*) AS n FROM tracks`).get() as {
+          n: number;
+        }
+      ).n;
+      if (trackCount > 0) {
+        this.setStoredScanRoot(newRoot);
+        this.logger.log(
+          `Recorded library scan root for existing catalogue: ${newRoot}`,
+        );
+      }
+      return;
+    }
+
+    if (change.kind === 'same') {
+      return;
+    }
+
+    if (change.kind === 'unrelated') {
+      this.logger.warn(
+        `Library path changed to an unrelated folder (${storedRoot} -> ${newRoot}); catalogue paths will not be rebased`,
+      );
+      return;
+    }
+
+    this.setJob('scan', {
+      running: true,
+      current: 0,
+      total: 0,
+      message: 'Rebasing catalogue paths…',
+    });
+
+    const rows = this.db.raw
+      .prepare(`SELECT id, relative_path FROM tracks`)
+      .all() as Array<{ id: number; relative_path: string }>;
+
+    const plan = planPathRebase(rows, change);
+    if (!plan || hasPathRebaseConflicts(rows, plan)) {
+      this.logger.warn(
+        `Could not rebase catalogue paths for root change (${storedRoot} -> ${newRoot}); falling back to full re-index`,
+      );
+      return;
+    }
+
+    const update = this.db.raw.prepare(
+      `UPDATE tracks SET relative_path = ?, updated_at = ? WHERE id = ?`,
+    );
+    const now = Date.now();
+    const tx = this.db.raw.transaction((updates: typeof plan.updates) => {
+      for (const row of updates) {
+        update.run(row.relative_path, now, row.id);
+      }
+      this.setStoredScanRoot(newRoot);
+    });
+    tx(plan.updates);
+
+    this.logger.log(
+      `Rebased ${plan.updates.length} catalogue path(s) for root change (${storedRoot} -> ${newRoot})`,
+    );
   }
 
   private normalizeMinRating(minRating?: number): number | null {

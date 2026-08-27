@@ -143,6 +143,11 @@ export function LibraryPage() {
                 Detects sidecar <code>.lrc</code> files next to audio files; it
                 does not download lyrics.
               </li>
+              <li>
+                Changing <code>MUSIC_LIBRARY_PATH</code> to a parent or child of
+                the last scanned folder (after restart) keeps already-indexed
+                files and skips them unless size or mtime changed.
+              </li>
               <li>Large libraries take time. Progress appears in the toolbar.</li>
             </ul>
           ),
