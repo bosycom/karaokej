@@ -17,6 +17,7 @@ export interface TrackRow {
   lyric_checked_at: number | null;
   lrclib_id: number | null;
   fingerprint: string | null;
+  rating: number | null;
   created_at: number;
   updated_at: number;
 }
@@ -34,6 +35,7 @@ export function trackToDto(row: TrackRow): TrackDto {
     format: row.format,
     lyricStatus: row.lyric_status,
     lyricSource: row.lyric_source,
+    rating: row.rating,
   };
 }
 

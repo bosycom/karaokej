@@ -17,6 +17,7 @@ import {
   walkAudioFiles,
   yieldEventLoop,
 } from './fs-utils';
+import { ratingFromMetadata, readRatingFromFile } from '../rating/rating-tags';
 
 @Injectable()
 export class LibraryService {
@@ -91,23 +92,33 @@ export class LibraryService {
       .get(id) as TrackRow | undefined;
   }
 
-  search(q: string, page: number, limit: number): TrackPageDto {
+  search(
+    q: string,
+    page: number,
+    limit: number,
+    minRating?: number,
+  ): TrackPageDto {
     const safePage = Math.max(1, page);
     const safeLimit = Math.min(100, Math.max(1, limit));
     const offset = (safePage - 1) * safeLimit;
     const query = q.trim();
+    const rating = this.normalizeMinRating(minRating);
+    const ratingSql = rating == null ? '' : ' AND rating >= ?';
+    const ratingParams = rating == null ? [] : [rating];
 
     if (!query) {
       const total = (
-        this.db.raw.prepare(`SELECT COUNT(*) AS n FROM tracks`).get() as {
-          n: number;
-        }
+        this.db.raw
+          .prepare(`SELECT COUNT(*) AS n FROM tracks WHERE 1=1${ratingSql}`)
+          .get(...ratingParams) as { n: number }
       ).n;
       const rows = this.db.raw
         .prepare(
-          `SELECT * FROM tracks ORDER BY artist COLLATE NOCASE, album COLLATE NOCASE, track_no, title COLLATE NOCASE LIMIT ? OFFSET ?`,
+          `SELECT * FROM tracks WHERE 1=1${ratingSql}
+           ORDER BY artist COLLATE NOCASE, album COLLATE NOCASE, track_no, title COLLATE NOCASE
+           LIMIT ? OFFSET ?`,
         )
-        .all(safeLimit, offset) as TrackRow[];
+        .all(...ratingParams, safeLimit, offset) as TrackRow[];
       return {
         items: rows.map(trackToDto),
         total,
@@ -123,38 +134,38 @@ export class LibraryService {
       total = (
         this.db.raw
           .prepare(
-            `SELECT COUNT(*) AS n FROM tracks_fts WHERE tracks_fts MATCH ?`,
+            `SELECT COUNT(*) AS n FROM tracks t
+             JOIN tracks_fts f ON f.rowid = t.id
+             WHERE tracks_fts MATCH ?${ratingSql}`,
           )
-          .get(match) as { n: number }
+          .get(match, ...ratingParams) as { n: number }
       ).n;
       rows = this.db.raw
         .prepare(
           `SELECT t.* FROM tracks t
            JOIN tracks_fts f ON f.rowid = t.id
-           WHERE tracks_fts MATCH ?
+           WHERE tracks_fts MATCH ?${ratingSql}
            ORDER BY rank, t.artist COLLATE NOCASE, t.title COLLATE NOCASE
            LIMIT ? OFFSET ?`,
         )
-        .all(match, safeLimit, offset) as TrackRow[];
+        .all(match, ...ratingParams, safeLimit, offset) as TrackRow[];
     } catch (err) {
       this.logger.warn(`FTS query failed, falling back to LIKE: ${err}`);
       const like = `%${query.replaceAll('%', '\\%')}%`;
+      const likeWhere = `(title LIKE ? ESCAPE '\\' OR artist LIKE ? ESCAPE '\\' OR album LIKE ? ESCAPE '\\')${ratingSql}`;
       total = (
         this.db.raw
-          .prepare(
-            `SELECT COUNT(*) AS n FROM tracks
-             WHERE title LIKE ? ESCAPE '\\' OR artist LIKE ? ESCAPE '\\' OR album LIKE ? ESCAPE '\\'`,
-          )
-          .get(like, like, like) as { n: number }
+          .prepare(`SELECT COUNT(*) AS n FROM tracks WHERE ${likeWhere}`)
+          .get(like, like, like, ...ratingParams) as { n: number }
       ).n;
       rows = this.db.raw
         .prepare(
           `SELECT * FROM tracks
-           WHERE title LIKE ? ESCAPE '\\' OR artist LIKE ? ESCAPE '\\' OR album LIKE ? ESCAPE '\\'
+           WHERE ${likeWhere}
            ORDER BY artist COLLATE NOCASE, title COLLATE NOCASE
            LIMIT ? OFFSET ?`,
         )
-        .all(like, like, like, safeLimit, offset) as TrackRow[];
+        .all(like, like, like, ...ratingParams, safeLimit, offset) as TrackRow[];
     }
 
     return {
@@ -245,6 +256,7 @@ export class LibraryService {
           await this.upsertFile(file);
         } else {
           this.refreshLyricPresence(file.relativePath, file.absolutePath);
+          await this.refreshRatingCache(file.relativePath, file.absolutePath);
         }
 
         processed += 1;
@@ -367,8 +379,8 @@ export class LibraryService {
         `INSERT INTO tracks (
            relative_path, format, size_bytes, mtime_ms, title, artist, album, album_artist,
            track_no, duration_ms, lyric_status, lyric_source, lyric_checked_at, lrclib_id,
-           fingerprint, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           fingerprint, rating, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(relative_path) DO UPDATE SET
            format = excluded.format,
            size_bytes = excluded.size_bytes,
@@ -384,6 +396,7 @@ export class LibraryService {
            lyric_checked_at = excluded.lyric_checked_at,
            lrclib_id = excluded.lrclib_id,
            fingerprint = excluded.fingerprint,
+           rating = excluded.rating,
            updated_at = excluded.updated_at`,
       )
       .run(
@@ -402,6 +415,7 @@ export class LibraryService {
         lyricCheckedAt,
         lrclibId,
         fingerprint,
+        parsed.rating,
         now,
         now,
       );
@@ -417,12 +431,13 @@ export class LibraryService {
     albumArtist: string | null;
     trackNo: number | null;
     durationMs: number | null;
+    rating: number;
   }> {
     const stem = basename(absolutePath, extname(absolutePath));
     const fallback = fallbackMetadata(relativePath, stem);
     try {
       const { parseFile } = await import('music-metadata');
-      const meta = await parseFile(absolutePath, { duration: true });
+      const meta = await parseFile(absolutePath, { duration: true, skipCovers: true });
       const common = meta.common;
       const title = common.title?.trim() || fallback.title;
       const artist =
@@ -435,7 +450,15 @@ export class LibraryService {
       const durationMs = meta.format.duration
         ? Math.round(meta.format.duration * 1000)
         : null;
-      return { title, artist, album, albumArtist, trackNo, durationMs };
+      return {
+        title,
+        artist,
+        album,
+        albumArtist,
+        trackNo,
+        durationMs,
+        rating: ratingFromMetadata(meta),
+      };
     } catch (err) {
       this.logger.warn(
         `Metadata read failed for ${relativePath}: ${err instanceof Error ? err.message : err}`,
@@ -445,8 +468,44 @@ export class LibraryService {
         albumArtist: null,
         trackNo: null,
         durationMs: null,
+        rating: 0,
       };
     }
+  }
+
+  private async refreshRatingCache(
+    relativePath: string,
+    absolutePath: string,
+  ): Promise<void> {
+    try {
+      const rating = await readRatingFromFile(absolutePath);
+      const row = this.db.raw
+        .prepare(`SELECT rating FROM tracks WHERE relative_path = ?`)
+        .get(relativePath) as { rating: number | null } | undefined;
+      if (!row || row.rating === rating) {
+        return;
+      }
+      this.db.raw
+        .prepare(
+          `UPDATE tracks SET rating = ?, updated_at = ? WHERE relative_path = ?`,
+        )
+        .run(rating, Date.now(), relativePath);
+    } catch (err) {
+      this.logger.warn(
+        `Rating read failed for ${relativePath}: ${err instanceof Error ? err.message : err}`,
+      );
+    }
+  }
+
+  private normalizeMinRating(minRating?: number): number | null {
+    if (minRating == null || !Number.isFinite(minRating)) {
+      return null;
+    }
+    const n = Math.floor(minRating);
+    if (n < 1 || n > 10) {
+      return null;
+    }
+    return n;
   }
 
   private toFtsQuery(raw: string): string {
