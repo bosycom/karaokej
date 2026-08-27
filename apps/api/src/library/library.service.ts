@@ -1,0 +1,464 @@
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { existsSync } from 'node:fs';
+import { basename, extname } from 'node:path';
+import {
+  JobStatusDto,
+  LibraryStatusDto,
+  TrackPageDto,
+} from '@karaokej/shared';
+import { AppConfigService } from '../config/app-config.service';
+import { DbService } from '../db/db.service';
+import { JobRow, TrackRow, trackToDto } from '../db/types';
+import { SessionService } from '../session/session.service';
+import {
+  fallbackMetadata,
+  lyricPathFor,
+  makeFingerprint,
+  walkAudioFiles,
+  yieldEventLoop,
+} from './fs-utils';
+
+@Injectable()
+export class LibraryService {
+  private readonly logger = new Logger(LibraryService.name);
+  private scanRunning = false;
+  private scanCancelRequested = false;
+
+  constructor(
+    private readonly db: DbService,
+    private readonly config: AppConfigService,
+    private readonly session: SessionService,
+  ) {}
+
+  status(): LibraryStatusDto {
+    const trackCount = this.db.raw
+      .prepare(`SELECT COUNT(*) AS n FROM tracks`)
+      .get() as { n: number };
+    const withLyrics = this.db.raw
+      .prepare(`SELECT COUNT(*) AS n FROM tracks WHERE lyric_status = 'present'`)
+      .get() as { n: number };
+    return {
+      trackCount: trackCount.n,
+      withLyrics: withLyrics.n,
+      libraryPath: this.config.libraryPath,
+      libraryConfigured: Boolean(this.config.libraryPath),
+      scan: this.jobStatus('scan'),
+      lyricsFetch: this.jobStatus('lyrics'),
+    };
+  }
+
+  jobStatus(kind: 'scan' | 'lyrics'): JobStatusDto {
+    const row = this.db.raw
+      .prepare(`SELECT * FROM jobs WHERE kind = ?`)
+      .get(kind) as JobRow | undefined;
+    return {
+      kind,
+      running: Boolean(row?.running),
+      current: row?.current ?? 0,
+      total: row?.total ?? 0,
+      message: row?.message ?? null,
+    };
+  }
+
+  setJob(
+    kind: 'scan' | 'lyrics',
+    patch: {
+      running?: boolean;
+      current?: number;
+      total?: number;
+      message?: string | null;
+    },
+  ): void {
+    const current = this.jobStatus(kind);
+    this.db.raw
+      .prepare(
+        `UPDATE jobs SET running = ?, current = ?, total = ?, message = ?, updated_at = ? WHERE kind = ?`,
+      )
+      .run(
+        Number(patch.running ?? current.running),
+        patch.current ?? current.current,
+        patch.total ?? current.total,
+        patch.message === undefined ? current.message : patch.message,
+        Date.now(),
+        kind,
+      );
+    this.session.broadcast();
+  }
+
+  getTrack(id: number): TrackRow | undefined {
+    return this.db.raw
+      .prepare(`SELECT * FROM tracks WHERE id = ?`)
+      .get(id) as TrackRow | undefined;
+  }
+
+  search(q: string, page: number, limit: number): TrackPageDto {
+    const safePage = Math.max(1, page);
+    const safeLimit = Math.min(100, Math.max(1, limit));
+    const offset = (safePage - 1) * safeLimit;
+    const query = q.trim();
+
+    if (!query) {
+      const total = (
+        this.db.raw.prepare(`SELECT COUNT(*) AS n FROM tracks`).get() as {
+          n: number;
+        }
+      ).n;
+      const rows = this.db.raw
+        .prepare(
+          `SELECT * FROM tracks ORDER BY artist COLLATE NOCASE, album COLLATE NOCASE, track_no, title COLLATE NOCASE LIMIT ? OFFSET ?`,
+        )
+        .all(safeLimit, offset) as TrackRow[];
+      return {
+        items: rows.map(trackToDto),
+        total,
+        page: safePage,
+        limit: safeLimit,
+      };
+    }
+
+    const match = this.toFtsQuery(query);
+    let total = 0;
+    let rows: TrackRow[] = [];
+    try {
+      total = (
+        this.db.raw
+          .prepare(
+            `SELECT COUNT(*) AS n FROM tracks_fts WHERE tracks_fts MATCH ?`,
+          )
+          .get(match) as { n: number }
+      ).n;
+      rows = this.db.raw
+        .prepare(
+          `SELECT t.* FROM tracks t
+           JOIN tracks_fts f ON f.rowid = t.id
+           WHERE tracks_fts MATCH ?
+           ORDER BY rank, t.artist COLLATE NOCASE, t.title COLLATE NOCASE
+           LIMIT ? OFFSET ?`,
+        )
+        .all(match, safeLimit, offset) as TrackRow[];
+    } catch (err) {
+      this.logger.warn(`FTS query failed, falling back to LIKE: ${err}`);
+      const like = `%${query.replaceAll('%', '\\%')}%`;
+      total = (
+        this.db.raw
+          .prepare(
+            `SELECT COUNT(*) AS n FROM tracks
+             WHERE title LIKE ? ESCAPE '\\' OR artist LIKE ? ESCAPE '\\' OR album LIKE ? ESCAPE '\\'`,
+          )
+          .get(like, like, like) as { n: number }
+      ).n;
+      rows = this.db.raw
+        .prepare(
+          `SELECT * FROM tracks
+           WHERE title LIKE ? ESCAPE '\\' OR artist LIKE ? ESCAPE '\\' OR album LIKE ? ESCAPE '\\'
+           ORDER BY artist COLLATE NOCASE, title COLLATE NOCASE
+           LIMIT ? OFFSET ?`,
+        )
+        .all(like, like, like, safeLimit, offset) as TrackRow[];
+    }
+
+    return {
+      items: rows.map(trackToDto),
+      total,
+      page: safePage,
+      limit: safeLimit,
+    };
+  }
+
+  async startScan(): Promise<void> {
+    if (!this.config.libraryPath) {
+      throw new BadRequestException(
+        'MUSIC_LIBRARY_PATH is not configured. Set it in .env and restart.',
+      );
+    }
+    if (this.scanRunning) {
+      return;
+    }
+    this.scanCancelRequested = false;
+    this.scanRunning = true;
+    void this.runScan().finally(() => {
+      this.scanRunning = false;
+    });
+  }
+
+  cancelScan(): void {
+    if (!this.scanRunning) {
+      return;
+    }
+    this.scanCancelRequested = true;
+  }
+
+  private async runScan(): Promise<void> {
+    const root = this.config.libraryPath!;
+    this.setJob('scan', {
+      running: true,
+      current: 0,
+      total: 0,
+      message: 'Walking library…',
+    });
+    try {
+      const files = await walkAudioFiles(root, () => this.scanCancelRequested);
+      if (this.scanCancelRequested) {
+        this.setJob('scan', {
+          running: false,
+          message: 'Scan cancelled',
+        });
+        return;
+      }
+      this.setJob('scan', {
+        running: true,
+        current: 0,
+        total: files.length,
+        message: `Found ${files.length} audio files`,
+      });
+
+      const existing = this.db.raw
+        .prepare(`SELECT id, relative_path, size_bytes, mtime_ms FROM tracks`)
+        .all() as Array<{
+        id: number;
+        relative_path: string;
+        size_bytes: number;
+        mtime_ms: number;
+      }>;
+      const byPath = new Map(existing.map((row) => [row.relative_path, row]));
+      const seen = new Set<string>();
+
+      let processed = 0;
+      for (const file of files) {
+        if (this.scanCancelRequested) {
+          this.setJob('scan', {
+            running: false,
+            current: processed,
+            total: files.length,
+            message: 'Scan cancelled',
+          });
+          return;
+        }
+        seen.add(file.relativePath);
+        const prev = byPath.get(file.relativePath);
+        const changed =
+          !prev ||
+          prev.size_bytes !== file.sizeBytes ||
+          prev.mtime_ms !== file.mtimeMs;
+
+        if (changed) {
+          await this.upsertFile(file);
+        } else {
+          this.refreshLyricPresence(file.relativePath, file.absolutePath);
+        }
+
+        processed += 1;
+        if (processed % 25 === 0) {
+          this.setJob('scan', {
+            running: true,
+            current: processed,
+            total: files.length,
+            message: `Indexing ${processed} / ${files.length}`,
+          });
+          await yieldEventLoop();
+        }
+      }
+
+      const staleIds = existing
+        .filter((row) => !seen.has(row.relative_path))
+        .map((row) => row.id);
+      if (staleIds.length > 0) {
+        const deleteOne = this.db.raw.prepare(
+          `DELETE FROM tracks WHERE id = ?`,
+        );
+        const stash = this.db.raw.prepare(
+          `INSERT INTO lyric_memory (fingerprint, lyric_status, lyric_source, lyric_checked_at, lrclib_id)
+           SELECT fingerprint, lyric_status, lyric_source, lyric_checked_at, lrclib_id
+           FROM tracks WHERE id = ? AND fingerprint IS NOT NULL
+           ON CONFLICT(fingerprint) DO UPDATE SET
+             lyric_status = excluded.lyric_status,
+             lyric_source = excluded.lyric_source,
+             lyric_checked_at = excluded.lyric_checked_at,
+             lrclib_id = excluded.lrclib_id`,
+        );
+        const tx = this.db.raw.transaction((ids: number[]) => {
+          for (const id of ids) {
+            stash.run(id);
+            deleteOne.run(id);
+          }
+        });
+        tx(staleIds);
+      }
+
+      this.setJob('scan', {
+        running: false,
+        current: files.length,
+        total: files.length,
+        message: `Indexed ${files.length} tracks`,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.error(`Scan failed: ${message}`);
+      this.setJob('scan', {
+        running: false,
+        message: `Scan failed: ${message}`,
+      });
+    }
+  }
+
+  private refreshLyricPresence(relativePath: string, absolutePath: string): void {
+    const hasLrc = existsSync(lyricPathFor(absolutePath));
+    const row = this.db.raw
+      .prepare(`SELECT id, lyric_status FROM tracks WHERE relative_path = ?`)
+      .get(relativePath) as { id: number; lyric_status: string } | undefined;
+    if (!row) {
+      return;
+    }
+    if (hasLrc && row.lyric_status !== 'present') {
+      this.db.raw
+        .prepare(
+          `UPDATE tracks SET lyric_status = 'present', lyric_source = COALESCE(lyric_source, 'local'), updated_at = ? WHERE id = ?`,
+        )
+        .run(Date.now(), row.id);
+    } else if (!hasLrc && row.lyric_status === 'present') {
+      this.db.raw
+        .prepare(
+          `UPDATE tracks SET lyric_status = 'missing', lyric_source = NULL, updated_at = ? WHERE id = ?`,
+        )
+        .run(Date.now(), row.id);
+    }
+  }
+
+  private async upsertFile(file: {
+    absolutePath: string;
+    relativePath: string;
+    sizeBytes: number;
+    mtimeMs: number;
+    format: string;
+  }): Promise<void> {
+    const now = Date.now();
+    const parsed = await this.readMetadata(file.absolutePath, file.relativePath);
+    const fingerprint = makeFingerprint(
+      parsed.artist,
+      parsed.title,
+      file.sizeBytes,
+      parsed.durationMs,
+    );
+    const hasLrc = existsSync(lyricPathFor(file.absolutePath));
+    const memory = this.db.raw
+      .prepare(`SELECT * FROM lyric_memory WHERE fingerprint = ?`)
+      .get(fingerprint) as
+      | {
+          lyric_status: string;
+          lyric_source: string | null;
+          lyric_checked_at: number | null;
+          lrclib_id: number | null;
+        }
+      | undefined;
+
+    let lyricStatus = hasLrc ? 'present' : 'missing';
+    let lyricSource: string | null = hasLrc ? 'local' : null;
+    let lyricCheckedAt: number | null = null;
+    let lrclibId: number | null = null;
+    if (!hasLrc && memory) {
+      lyricStatus = memory.lyric_status === 'present' ? 'missing' : memory.lyric_status;
+      lyricSource = memory.lyric_source;
+      lyricCheckedAt = memory.lyric_checked_at;
+      lrclibId = memory.lrclib_id;
+    }
+
+    this.db.raw
+      .prepare(
+        `INSERT INTO tracks (
+           relative_path, format, size_bytes, mtime_ms, title, artist, album, album_artist,
+           track_no, duration_ms, lyric_status, lyric_source, lyric_checked_at, lrclib_id,
+           fingerprint, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(relative_path) DO UPDATE SET
+           format = excluded.format,
+           size_bytes = excluded.size_bytes,
+           mtime_ms = excluded.mtime_ms,
+           title = excluded.title,
+           artist = excluded.artist,
+           album = excluded.album,
+           album_artist = excluded.album_artist,
+           track_no = excluded.track_no,
+           duration_ms = excluded.duration_ms,
+           lyric_status = excluded.lyric_status,
+           lyric_source = excluded.lyric_source,
+           lyric_checked_at = excluded.lyric_checked_at,
+           lrclib_id = excluded.lrclib_id,
+           fingerprint = excluded.fingerprint,
+           updated_at = excluded.updated_at`,
+      )
+      .run(
+        file.relativePath,
+        file.format,
+        file.sizeBytes,
+        file.mtimeMs,
+        parsed.title,
+        parsed.artist,
+        parsed.album,
+        parsed.albumArtist,
+        parsed.trackNo,
+        parsed.durationMs,
+        lyricStatus,
+        lyricSource,
+        lyricCheckedAt,
+        lrclibId,
+        fingerprint,
+        now,
+        now,
+      );
+  }
+
+  private async readMetadata(
+    absolutePath: string,
+    relativePath: string,
+  ): Promise<{
+    title: string;
+    artist: string | null;
+    album: string | null;
+    albumArtist: string | null;
+    trackNo: number | null;
+    durationMs: number | null;
+  }> {
+    const stem = basename(absolutePath, extname(absolutePath));
+    const fallback = fallbackMetadata(relativePath, stem);
+    try {
+      const { parseFile } = await import('music-metadata');
+      const meta = await parseFile(absolutePath, { duration: true });
+      const common = meta.common;
+      const title = common.title?.trim() || fallback.title;
+      const artist =
+        common.artist?.trim() ||
+        common.albumartist?.trim() ||
+        fallback.artist;
+      const album = common.album?.trim() || fallback.album;
+      const albumArtist = common.albumartist?.trim() || null;
+      const trackNo = common.track?.no ?? null;
+      const durationMs = meta.format.duration
+        ? Math.round(meta.format.duration * 1000)
+        : null;
+      return { title, artist, album, albumArtist, trackNo, durationMs };
+    } catch (err) {
+      this.logger.warn(
+        `Metadata read failed for ${relativePath}: ${err instanceof Error ? err.message : err}`,
+      );
+      return {
+        ...fallback,
+        albumArtist: null,
+        trackNo: null,
+        durationMs: null,
+      };
+    }
+  }
+
+  private toFtsQuery(raw: string): string {
+    const tokens = raw
+      .replace(/["*']/g, ' ')
+      .split(/\s+/)
+      .map((t) => t.trim())
+      .filter(Boolean)
+      .slice(0, 12);
+    if (tokens.length === 0) {
+      return '""';
+    }
+    return tokens.map((t) => `"${t}"*`).join(' AND ');
+  }
+}

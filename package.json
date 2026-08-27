@@ -1,0 +1,28 @@
+{
+  "name": "karaokej",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Self-hosted local-network Karaoke appliance",
+  "workspaces": [
+    "apps/api",
+    "apps/web",
+    "packages/shared"
+  ],
+  "scripts": {
+    "dev": "concurrently -n shared,api,web -c blue,green,magenta \"npm run dev -w @karaokej/shared\" \"npm run start:dev -w @karaokej/api\" \"npm run dev -w @karaokej/web\"",
+    "build": "npm run build -w @karaokej/shared && npm run build -w @karaokej/web && npm run build -w @karaokej/api",
+    "start": "npm run start -w @karaokej/api",
+    "clean": "npm run clean --workspaces --if-present"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "allowScripts": {
+    "better-sqlite3@11.10.0": true,
+    "esbuild@0.28.2": true
+  }
+}
