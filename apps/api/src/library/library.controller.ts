@@ -31,6 +31,11 @@ export class LibraryController {
     return this.library.status();
   }
 
+  @Post('scan/refresh')
+  refreshScan() {
+    return this.library.refreshScan();
+  }
+
   @Post('fetch-lyrics')
   async fetchLyrics() {
     await this.lyrics.startFetch();

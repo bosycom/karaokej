@@ -177,6 +177,71 @@ describe('LibraryService.search', () => {
   });
 });
 
+describe('LibraryService scan job recovery', () => {
+  let db: TestDbService;
+  let cleanup: () => void;
+  let library: LibraryService;
+
+  const mockConfig = {
+    libraryPaths: [],
+    ytsaverPath: '/missing/ytsaver',
+    ytdlpPath: '/missing/ytdlp',
+    demucsPath: '/missing/demucs',
+    isDemucsAvailable: () => false,
+  };
+
+  beforeEach(() => {
+    ({ db, cleanup } = createTestDb());
+    library = new LibraryService(
+      db as never,
+      mockConfig as never,
+      createMockSession(db),
+    );
+    db.raw
+      .prepare(
+        `UPDATE jobs SET running = 1, current = 100, total = 200, message = ?, updated_at = ? WHERE kind = 'scan'`,
+      )
+      .run('Indexing paths (1/2)', Date.now());
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('clears an orphaned running scan on startup', () => {
+    library.onModuleInit();
+    const scan = library.jobStatus('scan');
+    expect(scan.running).toBe(false);
+    expect(scan.current).toBe(100);
+    expect(scan.total).toBe(200);
+    expect(scan.message).toBe('Scan interrupted (server restarted)');
+  });
+
+  it('clears an orphaned running scan on refresh', () => {
+    library.refreshScan();
+    const scan = library.jobStatus('scan');
+    expect(scan.running).toBe(false);
+    expect(scan.current).toBe(100);
+    expect(scan.total).toBe(200);
+    expect(scan.message).toBe('Scan interrupted (no worker running)');
+  });
+
+  it('leaves a live in-memory scan running on refresh', () => {
+    (library as unknown as { scanRunning: boolean }).scanRunning = true;
+    library.refreshScan();
+    const scan = library.jobStatus('scan');
+    expect(scan.running).toBe(true);
+    expect(scan.message).toBe('Indexing paths (1/2)');
+  });
+
+  it('cancels an orphaned scan even when no worker is in memory', () => {
+    library.cancelScan();
+    const scan = library.jobStatus('scan');
+    expect(scan.running).toBe(false);
+    expect(scan.message).toBe('Scan cancelled');
+  });
+});
+
 describe('LibraryService.getRandomArtist', () => {
   let db: TestDbService;
   let cleanup: () => void;
