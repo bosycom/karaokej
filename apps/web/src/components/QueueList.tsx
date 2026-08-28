@@ -1,27 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
-import {
-  closestCenter,
-  DndContext,
-  DragEndEvent,
-  DragOverlay,
-  DragStartEvent,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-} from '@dnd-kit/core';
-import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
-import {
-  arrayMove,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  useSortable,
-  verticalListSortingStrategy,
-} from '@dnd-kit/sortable';
+import { useSortable } from '@dnd-kit/sortable';
+import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { FiMenu, FiX } from 'react-icons/fi';
 import { QueueItemDto } from '@karaokej/shared';
 import { api } from '../api';
+import { queueDragId } from '../dnd/dragIds';
 import { trackLabel } from '../session/SessionProvider';
 
 interface QueueListProps {
@@ -29,95 +12,29 @@ interface QueueListProps {
   currentQueueItemId: number | null;
 }
 
-export function QueueList({ items: serverItems, currentQueueItemId }: QueueListProps) {
-  const [items, setItems] = useState(serverItems);
-  const [activeId, setActiveId] = useState<number | null>(null);
-  const dragging = useRef(false);
-  const serverItemsRef = useRef(serverItems);
-  serverItemsRef.current = serverItems;
-
-  useEffect(() => {
-    if (!dragging.current) {
-      setItems(serverItems);
-    }
-  }, [serverItems]);
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
-
-  const activeItem = activeId != null ? items.find((item) => item.id === activeId) : undefined;
-
-  const onDragStart = (event: DragStartEvent) => {
-    dragging.current = true;
-    setActiveId(Number(event.active.id));
-  };
-
-  const onDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-    dragging.current = false;
-    setActiveId(null);
-
-    if (!over || active.id === over.id) {
-      return;
-    }
-
-    const oldIndex = items.findIndex((item) => item.id === active.id);
-    const newIndex = items.findIndex((item) => item.id === over.id);
-    if (oldIndex < 0 || newIndex < 0) {
-      return;
-    }
-
-    const next = arrayMove(items, oldIndex, newIndex);
-    setItems(next);
-    void api.reorderQueue(next.map((item) => item.id)).catch(() => {
-      setItems(serverItemsRef.current);
-    });
-  };
-
-  const onDragCancel = () => {
-    dragging.current = false;
-    setActiveId(null);
-  };
-
+export function QueueList({ items, currentQueueItemId }: QueueListProps) {
   return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={closestCenter}
-      modifiers={[restrictToVerticalAxis]}
-      onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
-      onDragCancel={onDragCancel}
+    <SortableContext
+      items={items.map((item) => queueDragId(item.id))}
+      strategy={verticalListSortingStrategy}
     >
-      <SortableContext items={items.map((item) => item.id)} strategy={verticalListSortingStrategy}>
-        <ol className="queue-list">
-          {items.map((item) => (
-            <SortableQueueItem
-              key={item.id}
-              item={item}
-              current={item.id === currentQueueItemId}
-            />
-          ))}
-        </ol>
-      </SortableContext>
-      <DragOverlay>
-        {activeItem ? (
-          <div className={`queue-overlay${activeItem.id === currentQueueItemId ? ' current' : ''}`}>
-            <span className="queue-handle" aria-hidden>
-              <FiMenu />
-            </span>
-            <span className="queue-title">{trackLabel(activeItem.track)}</span>
-          </div>
-        ) : null}
-      </DragOverlay>
-    </DndContext>
+      <ol className="queue-list">
+        {items.map((item) => (
+          <SortableQueueItem
+            key={item.id}
+            item={item}
+            current={item.id === currentQueueItemId}
+          />
+        ))}
+      </ol>
+    </SortableContext>
   );
 }
 
 function SortableQueueItem({ item, current }: { item: QueueItemDto; current: boolean }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: item.id,
+    id: queueDragId(item.id),
+    data: { kind: 'queue', item },
   });
 
   return (
