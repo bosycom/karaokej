@@ -88,6 +88,45 @@ export function lyricBadge(status: string): { label: string; tone: string } {
   }
 }
 
+export type KaraokeStemBadge = {
+  label: string;
+  tone: string;
+  show: true;
+  title: string;
+  processing?: boolean;
+};
+
+export function karaokeStemBadge(
+  status: string | null | undefined,
+): KaraokeStemBadge | null {
+  switch (status) {
+    case 'ready':
+      return {
+        label: 'AI stem',
+        tone: 'ok',
+        show: true,
+        title: 'AI instrumental stem is ready',
+      };
+    case 'pending':
+      return {
+        label: 'Queued',
+        tone: 'muted',
+        show: true,
+        title: 'Stem separation is queued',
+      };
+    case 'processing':
+      return {
+        label: 'Separating…',
+        tone: 'warn',
+        show: true,
+        title: 'Stem separation in progress',
+        processing: true,
+      };
+    default:
+      return null;
+  }
+}
+
 export function formatRelativeScanTime(timestamp: number | null | undefined): string {
   if (!timestamp) {
     return 'Never';

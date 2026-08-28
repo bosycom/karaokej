@@ -5,7 +5,9 @@ import { FiMenu, FiX } from 'react-icons/fi';
 import { QueueItemDto } from '@karaokej/shared';
 import { api } from '../api';
 import { queueDragId } from '../dnd/dragIds';
-import { trackLabel } from '../session/SessionProvider';
+import { queueSeparationDisplay } from '../queue/queueSeparationDisplay';
+import { trackLabel, useSession } from '../session/SessionProvider';
+import { CircularProgress } from './CircularProgress';
 
 interface QueueListProps {
   items: QueueItemDto[];
@@ -32,6 +34,8 @@ export function QueueList({ items, currentQueueItemId }: QueueListProps) {
 }
 
 function SortableQueueItem({ item, current }: { item: QueueItemDto; current: boolean }) {
+  const { state } = useSession();
+  const separation = queueSeparationDisplay(item, state.jobs.separation);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: queueDragId(item.id),
     data: { kind: 'queue', item },
@@ -60,6 +64,12 @@ function SortableQueueItem({ item, current }: { item: QueueItemDto; current: boo
         {trackLabel(item.track)}
       </button>
       <div className="queue-actions">
+        {separation.kind === 'progress' && (
+          <CircularProgress percent={separation.percent} />
+        )}
+        {separation.kind === 'queued' && (
+          <CircularProgress percent={0} indeterminate title="Queued for AI separation" />
+        )}
         <button
           type="button"
           className="icon-btn"

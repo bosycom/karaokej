@@ -28,8 +28,12 @@ export class StreamService {
       throw new NotFoundException('Audio file is missing from the library');
     }
 
-    const stat = statSync(absolute);
     const mime = MIME[track.format] ?? 'application/octet-stream';
+    this.streamFile(absolute, mime, req, res);
+  }
+
+  streamFile(absolutePath: string, mime: string, req: Request, res: Response): void {
+    const stat = statSync(absolutePath);
     const range = req.headers.range;
 
     res.setHeader('Content-Type', mime);
@@ -38,7 +42,7 @@ export class StreamService {
 
     if (!range) {
       res.setHeader('Content-Length', stat.size);
-      createReadStream(absolute).pipe(res);
+      createReadStream(absolutePath).pipe(res);
       return;
     }
 
@@ -57,6 +61,6 @@ export class StreamService {
     res.status(206);
     res.setHeader('Content-Range', `bytes ${start}-${chunkEnd}/${stat.size}`);
     res.setHeader('Content-Length', chunkEnd - start + 1);
-    createReadStream(absolute, { start, end: chunkEnd }).pipe(res);
+    createReadStream(absolutePath, { start, end: chunkEnd }).pipe(res);
   }
 }

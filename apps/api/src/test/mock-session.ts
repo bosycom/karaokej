@@ -27,6 +27,7 @@ export function createMockSession(db: TestDbService): SessionService {
         position: row.queue_position,
         addedAt: new Date(row.added_at).toISOString(),
         track: trackToDto(row),
+        stem: null,
       }));
     },
   } as unknown as SessionService;

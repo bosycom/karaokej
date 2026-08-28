@@ -12,14 +12,14 @@ vi.mock('node:child_process', () => ({
 function mockWslpath(map: Record<string, string>): void {
   vi.mocked(spawnSync).mockImplementation((cmd, args) => {
     if (cmd !== 'wslpath' || !Array.isArray(args) || args[0] !== '-w') {
-      return { status: 1, stdout: '', stderr: '', pid: 0, output: [] };
+      return { status: 1, stdout: '', stderr: '', pid: 0, output: [], signal: null };
     }
     const wslPath = String(args[1]);
     const winPath = map[wslPath];
     if (!winPath) {
-      return { status: 1, stdout: '', stderr: 'not found', pid: 0, output: [] };
+      return { status: 1, stdout: '', stderr: 'not found', pid: 0, output: [], signal: null };
     }
-    return { status: 0, stdout: `${winPath}\n`, stderr: '', pid: 0, output: [] };
+    return { status: 0, stdout: `${winPath}\n`, stderr: '', pid: 0, output: [], signal: null };
   });
 }
 

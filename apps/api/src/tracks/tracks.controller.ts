@@ -14,8 +14,8 @@ import { Request, Response } from 'express';
 import { LibraryService } from '../library/library.service';
 import { LyricsService } from '../lyrics/lyrics.service';
 import { RatingService } from '../rating/rating.service';
+import { SeparationService } from '../karaoke/separation.service';
 import { StreamService } from '../stream/stream.service';
-import { trackToDto } from '../db/types';
 import { NotFoundException } from '@nestjs/common';
 
 @Controller('tracks')
@@ -25,6 +25,7 @@ export class TracksController {
     private readonly lyrics: LyricsService,
     private readonly stream: StreamService,
     private readonly ratings: RatingService,
+    private readonly separation: SeparationService,
   ) {}
 
   @Get()
@@ -57,6 +58,16 @@ export class TracksController {
     @Res() res: Response,
   ) {
     this.stream.stream(id, req, res);
+  }
+
+  @Get(':id/karaoke-stem')
+  karaokeStem(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
+    const absolute = this.separation.getStemFilePath(id);
+    this.stream.streamFile(absolute, 'audio/mpeg', req, res);
   }
 
   @Get(':id/lyrics')
@@ -101,10 +112,10 @@ export class TracksController {
 
   @Get(':id')
   one(@Param('id', ParseIntPipe) id: number) {
-    const track = this.library.getTrack(id);
+    const track = this.library.getTrackDto(id);
     if (!track) {
       throw new NotFoundException('Track not found');
     }
-    return trackToDto(track);
+    return track;
   }
 }

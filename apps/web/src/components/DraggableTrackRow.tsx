@@ -3,7 +3,7 @@ import { FiPlay } from 'react-icons/fi';
 import { TrackDto } from '@karaokej/shared';
 import { api } from '../api';
 import { trackDragId } from '../dnd/dragIds';
-import { formatDuration, lyricBadge, trackSubtitleSegments } from '../format';
+import { formatDuration, karaokeStemBadge, lyricBadge, trackSubtitleSegments } from '../format';
 import { IconMenu } from './IconMenu';
 import { ProcessingText } from './ProcessingText';
 import { StarRating } from './StarRating';
@@ -31,6 +31,7 @@ export function DraggableTrackRow({
     data: { kind: 'track', track },
   });
   const badge = lyricBadge(track.lyricStatus);
+  const stemBadge = karaokeStemBadge(track.karaokeStemStatus);
   const canFetch = track.lyricStatus !== 'present';
   const fetchLabel = fetching ? 'Fetching…' : 'Fetch lyric';
   const tagsPending = track.metadataStatus === 'pending';
@@ -88,6 +89,15 @@ export function DraggableTrackRow({
         ) : (
           <span className={`badge ${badge.tone}`}>{badge.label}</span>
         )}
+        {stemBadge ? (
+          <span className={`badge ${stemBadge.tone}`} title={stemBadge.title}>
+            {stemBadge.processing ? (
+              <ProcessingText>{stemBadge.label}</ProcessingText>
+            ) : (
+              stemBadge.label
+            )}
+          </span>
+        ) : null}
         {tagsPending ? (
           <span className="badge warn" title="Tags not read yet">
             Tags pending

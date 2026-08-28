@@ -5,11 +5,16 @@ import { api } from '../api';
 import { formatDuration, lyricBadge } from '../format';
 import { useSession, trackLabel } from '../session/SessionProvider';
 import { LyricSearchModal } from './LyricSearchModal';
+import { KaraokeModeControl, karaokeModeShortLabel } from './KaraokeModeControl';
 import { ProcessingText } from './ProcessingText';
 import { StarRating } from './StarRating';
+import { useKaraoke } from '../session/useKaraoke';
+import { useLibraryStatus } from '../session/useLibraryStatus';
 
 export function PlayerBar({ compact = false }: { compact?: boolean }) {
   const { state, positionMs, isPlayer } = useSession();
+  const { karaoke, setMode } = useKaraoke();
+  const libraryStatus = useLibraryStatus();
   const [scrub, setScrub] = useState<number | null>(null);
   const [fetchingLyrics, setFetchingLyrics] = useState(false);
   const [lyricSearchTrack, setLyricSearchTrack] = useState<TrackDto | null>(null);
@@ -132,7 +137,24 @@ export function PlayerBar({ compact = false }: { compact?: boolean }) {
             onChange={(event) => void api.volume(Number(event.target.value))}
           />
         </label>
+        {!compact && (
+          <span
+            className={`pill ${karaoke.mode === 'off' ? 'muted' : 'ok'}`}
+            title={`Karaoke: ${karaokeModeShortLabel(karaoke.mode)}`}
+          >
+            {karaokeModeShortLabel(karaoke.mode)}
+          </span>
+        )}
       </div>
+      {!compact && (
+        <KaraokeModeControl
+          mode={karaoke.mode}
+          compact
+          disabled={!track}
+          demucsAvailable={libraryStatus?.demucsAvailable ?? false}
+          onChange={setMode}
+        />
+      )}
       {!isPlayer && !compact && (
         <p className="player-hint">This window is following playback. Audio is on another device.</p>
       )}

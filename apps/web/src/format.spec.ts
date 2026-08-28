@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatTrackSubtitle } from './format';
+import { formatTrackSubtitle, karaokeStemBadge } from './format';
 
 describe('formatTrackSubtitle', () => {
   it('shows artist and album with year in parentheses', () => {
@@ -66,5 +66,39 @@ describe('formatTrackSubtitle', () => {
         genres: ['Rock'],
       }),
     ).toBe('Unknown artist · Rock');
+  });
+});
+
+describe('karaokeStemBadge', () => {
+  it('returns ready badge', () => {
+    expect(karaokeStemBadge('ready')).toMatchObject({
+      label: 'AI stem',
+      tone: 'ok',
+      show: true,
+    });
+  });
+
+  it('returns pending badge', () => {
+    expect(karaokeStemBadge('pending')).toMatchObject({
+      label: 'Queued',
+      tone: 'muted',
+      show: true,
+    });
+  });
+
+  it('returns processing badge with animation flag', () => {
+    expect(karaokeStemBadge('processing')).toMatchObject({
+      label: 'Separating…',
+      tone: 'warn',
+      show: true,
+      processing: true,
+    });
+  });
+
+  it('returns null for hidden statuses', () => {
+    expect(karaokeStemBadge(null)).toBeNull();
+    expect(karaokeStemBadge('none')).toBeNull();
+    expect(karaokeStemBadge('failed')).toBeNull();
+    expect(karaokeStemBadge('unsupported')).toBeNull();
   });
 });

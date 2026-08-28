@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleDestroy, forwardRef } from '@nestjs/common';
 import WebSocket from 'ws';
 import {
   JobStatusDto,
@@ -9,7 +9,10 @@ import {
 } from '@karaokej/shared';
 import { DbService } from '../db/db.service';
 import { JobRow, PlaybackRow, TrackRow, trackToDto } from '../db/types';
+import { SeparationService } from '../karaoke/separation.service';
+import { loadStemRowsForTracks, resolveQueueStemStatus } from '../karaoke/stem-status';
 import { SettingsService } from '../settings/settings.service';
+import { KaraokeService } from '../karaoke/karaoke.service';
 
 @Injectable()
 export class SessionService implements OnModuleDestroy {
@@ -19,6 +22,10 @@ export class SessionService implements OnModuleDestroy {
   constructor(
     private readonly db: DbService,
     private readonly settings: SettingsService,
+    @Inject(forwardRef(() => KaraokeService))
+    private readonly karaoke: KaraokeService,
+    @Inject(forwardRef(() => SeparationService))
+    private readonly separation: SeparationService,
   ) {}
 
   onModuleDestroy(): void {
@@ -66,8 +73,10 @@ export class SessionService implements OnModuleDestroy {
         scan: this.job('scan'),
         lyricsFetch: this.job('lyrics'),
         download: this.job('download'),
+        separation: this.job('separation'),
       },
       settings: this.settings.get(),
+      karaoke: this.karaoke.getState(),
     };
   }
 
@@ -114,11 +123,17 @@ export class SessionService implements OnModuleDestroy {
       TrackRow & { queue_id: number; queue_position: number; added_at: number }
     >;
 
+    const stemByTrackId = loadStemRowsForTracks(this.db.raw, rows.map((row) => row.id));
+
     return rows.map((row) => ({
       id: row.queue_id,
       position: row.queue_position,
       addedAt: new Date(row.added_at).toISOString(),
-      track: trackToDto(row),
+      track: trackToDto(
+        row,
+        resolveQueueStemStatus(row, stemByTrackId.get(row.id))?.status ?? null,
+      ),
+      stem: resolveQueueStemStatus(row, stemByTrackId.get(row.id)),
     }));
   }
 
@@ -140,17 +155,21 @@ export class SessionService implements OnModuleDestroy {
     }
   }
 
-  private job(kind: 'scan' | 'lyrics' | 'download'): JobStatusDto {
+  private job(kind: 'scan' | 'lyrics' | 'download' | 'separation'): JobStatusDto {
     const row = this.db.raw
       .prepare(`SELECT * FROM jobs WHERE kind = ?`)
       .get(kind) as JobRow | undefined;
-    return {
+    const status: JobStatusDto = {
       kind,
       running: Boolean(row?.running),
       current: row?.current ?? 0,
       total: row?.total ?? 0,
       message: row?.message ?? null,
     };
+    if (kind === 'separation') {
+      status.trackId = this.separation.getProcessingTrackId();
+    }
+    return status;
   }
 
   private send(socket: WebSocket, state: SessionStateDto): void {

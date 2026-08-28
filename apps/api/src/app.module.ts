@@ -24,6 +24,9 @@ import { PlaylistsService } from './playlists/playlists.service';
 import { ExternalController } from './external/external.controller';
 import { YtsaverService } from './external/ytsaver.service';
 import { YtdlpService } from './external/ytdlp.service';
+import { KaraokeController } from './karaoke/karaoke.controller';
+import { KaraokeService } from './karaoke/karaoke.service';
+import { SeparationService } from './karaoke/separation.service';
 
 @Module({
   imports: [
@@ -45,6 +48,7 @@ import { YtdlpService } from './external/ytdlp.service';
     SettingsController,
     PlaylistsController,
     ExternalController,
+    KaraokeController,
   ],
   providers: [
     AppConfigService,
@@ -62,6 +66,8 @@ import { YtdlpService } from './external/ytdlp.service';
     PlaylistsService,
     YtsaverService,
     YtdlpService,
+    KaraokeService,
+    SeparationService,
   ],
 })
 export class AppModule {}

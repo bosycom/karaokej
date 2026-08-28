@@ -1,4 +1,15 @@
-import { AudioFormat, LyricSource, LyricStatus, TrackDto } from '@karaokej/shared';
+import {
+  AiProcessingStatus,
+  AudioFormat,
+  KARAOKE_DEFAULTS,
+  KaraokeSettingsDto,
+  KaraokeStemDto,
+  KaraokeTrackSettings,
+  LyricSource,
+  LyricStatus,
+  TrackDto,
+  parseEqBands,
+} from '@karaokej/shared';
 
 export interface TrackRow {
   id: number;
@@ -41,7 +52,10 @@ function parseGenres(raw: string | null | undefined): string[] {
   }
 }
 
-export function trackToDto(row: TrackRow): TrackDto {
+export function trackToDto(
+  row: TrackRow,
+  karaokeStemStatus: AiProcessingStatus | null = null,
+): TrackDto {
   return {
     id: row.id,
     relativePath: row.relative_path,
@@ -58,6 +72,7 @@ export function trackToDto(row: TrackRow): TrackDto {
     year: row.year,
     genres: parseGenres(row.genres),
     metadataStatus: row.metadata_status ?? 'ready',
+    karaokeStemStatus,
   };
 }
 
@@ -80,7 +95,7 @@ export interface PlaybackRow {
 }
 
 export interface JobRow {
-  kind: 'scan' | 'lyrics';
+  kind: 'scan' | 'lyrics' | 'download' | 'separation';
   running: number;
   current: number;
   total: number;
@@ -102,4 +117,106 @@ export interface PlaylistItemRow {
   track_id: number;
   position: number;
   added_at: number;
+}
+
+export interface KaraokeSettingsRow {
+  track_id: number;
+  center_amount: number;
+  bass_retain_hz: number;
+  treble_retain_hz: number;
+  makeup_gain_db: number;
+  eq_bands: string;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface KaraokeStemRow {
+  track_id: number;
+  status: AiProcessingStatus;
+  model: string | null;
+  model_version: string | null;
+  file_path: string | null;
+  size_bytes: number | null;
+  source_mtime_ms: number;
+  source_size_bytes: number;
+  error: string | null;
+  requested_at: number | null;
+  processed_at: number | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export function karaokeStemToDto(
+  trackId: number,
+  row: KaraokeStemRow | null,
+): KaraokeStemDto {
+  if (!row) {
+    return {
+      trackId,
+      status: 'none',
+      url: null,
+      model: null,
+      modelVersion: null,
+      processedAt: null,
+      error: null,
+    };
+  }
+  return {
+    trackId,
+    status: row.status,
+    url:
+      row.status === 'ready'
+        ? `/api/tracks/${trackId}/karaoke-stem`
+        : null,
+    model: row.model,
+    modelVersion: row.model_version,
+    processedAt: row.processed_at
+      ? new Date(row.processed_at).toISOString()
+      : null,
+    error: row.error,
+  };
+}
+
+export function karaokeSettingsRowToTrackSettings(
+  row: KaraokeSettingsRow,
+): KaraokeTrackSettings {
+  return {
+    centerAmount: row.center_amount,
+    bassRetainHz: row.bass_retain_hz,
+    trebleRetainHz: row.treble_retain_hz,
+    makeupGainDb: row.makeup_gain_db,
+    eqBands: parseEqBands(JSON.parse(row.eq_bands)),
+  };
+}
+
+export function karaokeSettingsToDto(
+  trackId: number,
+  row: KaraokeSettingsRow | null,
+  isDefault: boolean,
+): KaraokeSettingsDto {
+  if (!row) {
+    return {
+      trackId,
+      ...KARAOKE_DEFAULTS,
+      eqBands: KARAOKE_DEFAULTS.eqBands.map((band) => ({ ...band })),
+      isDefault: true,
+      updatedAt: null,
+    };
+  }
+  let eqBands;
+  try {
+    eqBands = parseEqBands(JSON.parse(row.eq_bands));
+  } catch {
+    eqBands = KARAOKE_DEFAULTS.eqBands.map((band) => ({ ...band }));
+  }
+  return {
+    trackId,
+    centerAmount: row.center_amount,
+    bassRetainHz: row.bass_retain_hz,
+    trebleRetainHz: row.treble_retain_hz,
+    makeupGainDb: row.makeup_gain_db,
+    eqBands,
+    isDefault,
+    updatedAt: new Date(row.updated_at).toISOString(),
+  };
 }

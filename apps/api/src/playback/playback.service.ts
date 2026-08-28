@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PlaybackStateDto } from '@karaokej/shared';
 import { DbService } from '../db/db.service';
+import { SeparationService } from '../karaoke/separation.service';
 import { QueueService } from '../queue/queue.service';
 import { SessionService } from '../session/session.service';
 import { SettingsService } from '../settings/settings.service';
@@ -12,6 +13,7 @@ export class PlaybackService {
     private readonly session: SessionService,
     private readonly queue: QueueService,
     private readonly settings: SettingsService,
+    private readonly separation: SeparationService,
   ) {}
 
   get(): PlaybackStateDto {
@@ -158,5 +160,6 @@ export class PlaybackService {
          WHERE id = 1`,
       )
       .run(queueItemId, status, Date.now());
+    this.separation.ensureScheduledForCurrentQueue();
   }
 }

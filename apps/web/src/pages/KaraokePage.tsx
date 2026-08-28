@@ -1,7 +1,9 @@
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { useSession } from '../session/SessionProvider';
+import { KaraokeBackground } from '../backgrounds/KaraokeBackground';
 import { LyricStage } from '../components/LyricStage';
+import { KaraokePanel } from '../components/KaraokePanel';
 import { PlayerBar } from '../components/PlayerBar';
 
 export function KaraokePage() {
@@ -10,6 +12,10 @@ export function KaraokePage() {
 
   return (
     <div className="karaoke-shell">
+      <KaraokeBackground
+        trackId={track?.id != null ? String(track.id) : null}
+        isPlayer={isPlayer}
+      />
       <header className="karaoke-header">
         <Link to="/" className="back">
           Controller
@@ -30,6 +36,7 @@ export function KaraokePage() {
         positionMs={positionMs}
         hasTrack={Boolean(track)}
       />
+      <KaraokePanel />
       <PlayerBar compact />
     </div>
   );

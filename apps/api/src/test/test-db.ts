@@ -105,8 +105,17 @@ export class TestDbService {
       )
       .run('download', now);
     this.raw
+      .prepare(
+        `INSERT OR IGNORE INTO jobs (kind, running, current, total, message, updated_at)
+         VALUES (?, 0, 0, 0, NULL, ?)`,
+      )
+      .run('separation', now);
+    this.raw
       .prepare(`INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, ?)`)
       .run('remove_played_from_queue', '0');
+    this.raw
+      .prepare(`INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, ?)`)
+      .run('karaoke_mode', 'off');
   }
 
   close(): void {

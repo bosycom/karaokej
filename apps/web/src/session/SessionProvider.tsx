@@ -15,6 +15,8 @@ import {
   WsServerMessage,
 } from '@karaokej/shared';
 import { api, emptySession, wsUrl } from '../api';
+import { planSourceSwap, resolveAudioSrc } from '../audio/resolveAudioSrc';
+import { getKaraokeEngine } from '../audio/karaokeEngine';
 
 const CLIENT_KEY = 'karaokej.clientId';
 
@@ -54,8 +56,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [positionMs, setPositionMs] = useState(0);
   const [lyrics, setLyrics] = useState<LyricsDto | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const karaokeEngineRef = useRef(getKaraokeEngine());
   const lastSeekSeq = useRef(-1);
   const lastTrackId = useRef<number | null>(null);
+  const lastAppliedSrc = useRef<string | null>(null);
   const applyingRemote = useRef(false);
   const checkpointTimer = useRef<number | null>(null);
 
@@ -149,13 +153,42 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const nextSrc = `/api/tracks/${currentTrack.id}/audio`;
+    const nextSrc = resolveAudioSrc(currentTrack, state.karaoke);
     const trackChanged = lastTrackId.current !== currentTrack.id;
-    if (trackChanged || !audio.src.endsWith(nextSrc)) {
+    const swapPlan = planSourceSwap({
+      currentSrc: lastAppliedSrc.current ?? '',
+      nextSrc,
+      currentTime: audio.currentTime,
+      paused: audio.paused,
+    });
+
+    if (trackChanged || swapPlan.shouldSwap) {
       lastTrackId.current = currentTrack.id;
+      lastAppliedSrc.current = nextSrc;
       applyingRemote.current = true;
       audio.src = nextSrc;
       audio.load();
+
+      if (!trackChanged && swapPlan.restoreTo != null) {
+        const restoreTo = swapPlan.restoreTo;
+        const resume = swapPlan.resumePlayback;
+        const restore = () => {
+          try {
+            audio.currentTime = restoreTo;
+          } catch {
+            /* not ready */
+          }
+          applyingRemote.current = false;
+          if (resume && state.playback.status === 'playing') {
+            void audio.play().catch(() => undefined);
+          }
+        };
+        if (audio.readyState >= 1) {
+          restore();
+        } else {
+          audio.addEventListener('loadedmetadata', restore, { once: true });
+        }
+      }
     }
 
     if (trackChanged || lastSeekSeq.current !== state.playback.seekSeq) {
@@ -187,11 +220,28 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     } else {
       audio.pause();
     }
-  }, [isPlayer, currentTrack, state.playback]);
+  }, [isPlayer, currentTrack, state.karaoke, state.playback]);
 
   useEffect(() => {
     void applyPlayback();
   }, [applyPlayback]);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    const engine = karaokeEngineRef.current;
+    if (audio) {
+      engine.bind(audio);
+    }
+    if (isPlayer) {
+      engine.applyState(state.karaoke, currentTrack);
+    }
+  }, [isPlayer, state.karaoke, currentTrack]);
+
+  useEffect(() => {
+    return () => {
+      karaokeEngineRef.current.dispose();
+    };
+  }, []);
 
   useEffect(() => {
     const audio = audioRef.current;

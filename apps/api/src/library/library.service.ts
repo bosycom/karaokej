@@ -1,4 +1,10 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  OnModuleInit,
+} from '@nestjs/common';
 import { existsSync, statSync } from 'node:fs';
 import { access, constants } from 'node:fs/promises';
 import { join, relative } from 'node:path';
@@ -14,6 +20,7 @@ import {
 import { AppConfigService } from '../config/app-config.service';
 import { DbService } from '../db/db.service';
 import { JobRow, TrackRow, trackToDto } from '../db/types';
+import { loadStemRowsForTracks, resolveStemStatusForTrack } from '../karaoke/stem-status';
 import { SessionService } from '../session/session.service';
 import {
   estimateScanRate,
@@ -77,7 +84,7 @@ const DEDUPE_KEEP_ORDER = `
 `;
 
 @Injectable()
-export class LibraryService {
+export class LibraryService implements OnModuleInit {
   private readonly logger = new Logger(LibraryService.name);
   private scanRunning = false;
   private scanCancelRequested = false;
@@ -89,6 +96,10 @@ export class LibraryService {
     private readonly config: AppConfigService,
     private readonly session: SessionService,
   ) {}
+
+  onModuleInit(): void {
+    this.reconcileScanJob('startup');
+  }
 
   status(): LibraryStatusDto {
     const trackCount = this.db.raw
@@ -112,10 +123,12 @@ export class LibraryService {
       ytsaverPath: this.config.ytsaverPath,
       ytdlpAvailable: existsSync(this.config.ytdlpPath),
       ytdlpPath: this.config.ytdlpPath,
+      demucsAvailable: this.config.isDemucsAvailable(),
+      demucsPath: this.config.demucsPath,
     };
   }
 
-  jobStatus(kind: 'scan' | 'lyrics' | 'download'): JobStatusDto {
+  jobStatus(kind: 'scan' | 'lyrics' | 'download' | 'separation'): JobStatusDto {
     const row = this.db.raw
       .prepare(`SELECT * FROM jobs WHERE kind = ?`)
       .get(kind) as JobRow | undefined;
@@ -129,7 +142,7 @@ export class LibraryService {
   }
 
   setJob(
-    kind: 'scan' | 'lyrics' | 'download',
+    kind: 'scan' | 'lyrics' | 'download' | 'separation',
     patch: {
       running?: boolean;
       current?: number;
@@ -157,6 +170,24 @@ export class LibraryService {
     return this.db.raw
       .prepare(`SELECT * FROM tracks WHERE id = ?`)
       .get(id) as TrackRow | undefined;
+  }
+
+  getTrackDto(id: number): TrackDto | undefined {
+    const row = this.getTrack(id);
+    if (!row) {
+      return undefined;
+    }
+    return this.tracksToDto([row])[0];
+  }
+
+  private tracksToDto(rows: TrackRow[]): TrackDto[] {
+    const stemByTrackId = loadStemRowsForTracks(
+      this.db.raw,
+      rows.map((row) => row.id),
+    );
+    return rows.map((row) =>
+      trackToDto(row, resolveStemStatusForTrack(row, stemByTrackId.get(row.id))),
+    );
   }
 
   getRandomArtist(exclude?: string): RandomArtistDto {
@@ -363,7 +394,7 @@ export class LibraryService {
             offset,
           );
       return {
-        items: rows.map(trackToDto),
+        items: this.tracksToDto(rows),
         total,
         page: safePage,
         limit: safeLimit,
@@ -431,7 +462,7 @@ export class LibraryService {
     }
 
     return {
-      items: rows.map(trackToDto),
+      items: this.tracksToDto(rows),
       total,
       page: safePage,
       limit: safeLimit,
@@ -507,11 +538,45 @@ export class LibraryService {
   }
 
   cancelScan(): void {
-    if (!this.scanRunning) {
+    if (this.scanRunning) {
+      this.scanCancelRequested = true;
+      this.scanWorkerHost.cancel();
       return;
     }
-    this.scanCancelRequested = true;
-    this.scanWorkerHost.cancel();
+    if (this.jobStatus('scan').running) {
+      this.setJob('scan', {
+        running: false,
+        message: 'Scan cancelled',
+      });
+    }
+  }
+
+  /** Reconciles SQLite scan state with the in-process worker flag. */
+  reconcileScanJob(reason: 'startup' | 'refresh'): boolean {
+    if (!this.jobStatus('scan').running) {
+      return false;
+    }
+    if (this.scanRunning) {
+      return false;
+    }
+    if (reason === 'startup') {
+      this.logger.warn(
+        'Clearing orphaned library scan left marked running after a previous process exit',
+      );
+    }
+    this.setJob('scan', {
+      running: false,
+      message:
+        reason === 'startup'
+          ? 'Scan interrupted (server restarted)'
+          : 'Scan interrupted (no worker running)',
+    });
+    return true;
+  }
+
+  refreshScan(): LibraryStatusDto {
+    this.reconcileScanJob('refresh');
+    return this.status();
   }
 
   private async runScan(): Promise<void> {

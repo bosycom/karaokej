@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { existsSync, mkdirSync } from 'node:fs';
-import { dirname, isAbsolute, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import {
   buildLibraryPathLayout,
   parseLibraryPathEntries,
@@ -85,6 +85,76 @@ export class AppConfigService {
       this.config.get<string>('FFMPEG_PATH') ??
       '/mnt/c/Program Files/YT Saver/ffmpeg.exe';
     return isAbsolute(raw) ? raw : resolve(this.repoRoot, raw);
+  }
+
+  get demucsPath(): string {
+    return this.config.get<string>('DEMUCS_PATH')?.trim() || 'demucs';
+  }
+
+  get demucsModel(): string {
+    return this.config.get<string>('DEMUCS_MODEL')?.trim() || 'htdemucs';
+  }
+
+  get demucsExtraArgs(): string[] {
+    const raw = this.config.get<string>('DEMUCS_EXTRA_ARGS')?.trim();
+    if (!raw) {
+      return [];
+    }
+    return raw.split(/\s+/).filter(Boolean);
+  }
+
+  get demucsTimeoutMs(): number {
+    return clampInt(
+      this.config.get<string>('DEMUCS_TIMEOUT_MS'),
+      1_800_000,
+      60_000,
+      7_200_000,
+    );
+  }
+
+  get stemCachePath(): string {
+    const raw =
+      this.config.get<string>('DEMUCS_STEM_CACHE_PATH') ??
+      './data/karaoke-stems';
+    const resolved = isAbsolute(raw) ? raw : resolve(this.repoRoot, raw);
+    mkdirSync(resolved, { recursive: true });
+    return resolved;
+  }
+
+  isDemucsAvailable(): boolean {
+    const configured = this.demucsPath;
+    if (configured.includes('/') || configured.includes('\\')) {
+      return existsSync(configured);
+    }
+    const pathEnv = process.env.PATH ?? '';
+    for (const dir of pathEnv.split(':')) {
+      if (!dir) {
+        continue;
+      }
+      const candidate = join(dir, configured);
+      if (existsSync(candidate)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  resolveDemucsExecutable(): string | null {
+    const configured = this.demucsPath;
+    if (configured.includes('/') || configured.includes('\\')) {
+      return existsSync(configured) ? configured : null;
+    }
+    const pathEnv = process.env.PATH ?? '';
+    for (const dir of pathEnv.split(':')) {
+      if (!dir) {
+        continue;
+      }
+      const candidate = join(dir, configured);
+      if (existsSync(candidate)) {
+        return candidate;
+      }
+    }
+    return null;
   }
 
   get ytdlpAudioFormat(): string {

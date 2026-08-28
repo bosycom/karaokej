@@ -1,5 +1,7 @@
 export type AudioFormat = 'mp3' | 'flac' | 'opus';
 
+import type { AiProcessingStatus, KaraokeStateDto } from './karaoke';
+
 export type LyricStatus =
   | 'missing'
   | 'present'
@@ -29,6 +31,8 @@ export interface TrackDto {
   genres: string[];
   /** pending = path-only metadata; ready = tags parsed from file headers */
   metadataStatus: MetadataStatus;
+  /** Stem separation state; null = never requested / no row in karaoke_stems. */
+  karaokeStemStatus: AiProcessingStatus | null;
 }
 
 export interface TrackPageDto {
@@ -70,6 +74,8 @@ export interface QueueItemDto {
   position: number;
   addedAt: string;
   track: TrackDto;
+  /** AI separation status for this track, when present in the catalogue. */
+  stem: { status: AiProcessingStatus } | null;
 }
 
 export type PlaybackStatus = 'idle' | 'playing' | 'paused';
@@ -85,11 +91,13 @@ export interface PlaybackStateDto {
 }
 
 export interface JobStatusDto {
-  kind: 'scan' | 'lyrics' | 'download';
+  kind: 'scan' | 'lyrics' | 'download' | 'separation';
   running: boolean;
   current: number;
   total: number;
   message: string | null;
+  /** Track being separated, when kind is separation and a job is active. */
+  trackId?: number | null;
 }
 
 export interface ScanIssueDto {
@@ -111,6 +119,8 @@ export interface LibraryStatusDto {
   ytsaverPath: string;
   ytdlpAvailable: boolean;
   ytdlpPath: string;
+  demucsAvailable: boolean;
+  demucsPath: string;
 }
 
 export interface YoutubeSearchHitDto {
@@ -131,6 +141,28 @@ export interface YoutubeDownloadResultDto {
 
 export { buildPlatformSearchUrls, type PlatformSearchUrls } from './search-fallback-urls';
 
+export {
+  KARAOKE_DEFAULTS,
+  KARAOKE_DEFAULT_EQ_BANDS,
+  KARAOKE_LIMITS,
+  KARAOKE_MODES,
+  defaultKaraokeState,
+  isAiProcessingStatus,
+  isKaraokeMode,
+  karaokeTrackSettingsEqual,
+  normalizeKaraokeSettings,
+  parseEqBands,
+  serializeEqBands,
+  type AiProcessingStatus,
+  type KaraokeEqBand,
+  type KaraokeMode,
+  type KaraokeSettingsDto,
+  type KaraokeStateDto,
+  type KaraokeStemDto,
+  type KaraokeTrackSettings,
+  type NormalizeKaraokeSettingsResult,
+} from './karaoke';
+
 export interface RandomArtistDto {
   artist: string;
 }
@@ -146,8 +178,10 @@ export interface SessionStateDto {
     scan: JobStatusDto;
     lyricsFetch: JobStatusDto;
     download: JobStatusDto;
+    separation: JobStatusDto;
   };
   settings: AppSettingsDto;
+  karaoke: KaraokeStateDto;
 }
 
 export interface WsClientMessage {

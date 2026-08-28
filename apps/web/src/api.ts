@@ -1,5 +1,9 @@
 import {
   AppSettingsDto,
+  KaraokeMode,
+  KaraokeSettingsDto,
+  KaraokeStateDto,
+  KaraokeTrackSettings,
   LibraryStatusDto,
   LyricSearchResultDto,
   LyricsDto,
@@ -14,6 +18,7 @@ import {
   TrackPathDto,
   YoutubeDownloadResultDto,
   YoutubeSearchResultDto,
+  defaultKaraokeState,
 } from '@karaokej/shared';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -52,6 +57,8 @@ export const api = {
   scan: () => request<LibraryStatusDto>('/api/library/scan', { method: 'POST' }),
   cancelScan: () =>
     request<LibraryStatusDto>('/api/library/scan/cancel', { method: 'POST' }),
+  refreshScan: () =>
+    request<LibraryStatusDto>('/api/library/scan/refresh', { method: 'POST' }),
   fetchLyrics: () =>
     request<LibraryStatusDto>('/api/library/fetch-lyrics', { method: 'POST' }),
   cancelFetchLyrics: () =>
@@ -215,6 +222,34 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ videoId }),
     }),
+  getKaraokeSettings: (trackId: number) =>
+    request<KaraokeSettingsDto>(`/api/tracks/${trackId}/karaoke-settings`),
+  saveKaraokeSettings: (trackId: number, settings: KaraokeTrackSettings) =>
+    request<KaraokeSettingsDto>(`/api/tracks/${trackId}/karaoke-settings`, {
+      method: 'PUT',
+      body: JSON.stringify(settings),
+    }),
+  resetKaraokeSettings: (trackId: number) =>
+    request<KaraokeSettingsDto>(`/api/tracks/${trackId}/karaoke-settings`, {
+      method: 'DELETE',
+    }),
+  setKaraokeMode: (mode: KaraokeMode) =>
+    request<KaraokeStateDto>('/api/karaoke/mode', {
+      method: 'PUT',
+      body: JSON.stringify({ mode }),
+    }),
+  patchKaraokeLive: (patch: Partial<KaraokeTrackSettings> & { trackId?: number }) =>
+    request<KaraokeStateDto>('/api/karaoke/live', {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  getKaraokeState: () => request<KaraokeStateDto>('/api/karaoke/state'),
+  separateTrack: (trackId: number) =>
+    request<KaraokeStateDto>(`/api/karaoke/tracks/${trackId}/separate`, {
+      method: 'POST',
+    }),
+  cancelSeparation: () =>
+    request<KaraokeStateDto>('/api/karaoke/separation', { method: 'DELETE' }),
 };
 
 export function wsUrl(): string {
@@ -249,8 +284,16 @@ export const emptySession: SessionStateDto = {
       total: 0,
       message: null,
     },
+    separation: {
+      kind: 'separation',
+      running: false,
+      current: 0,
+      total: 0,
+      message: null,
+    },
   },
   settings: {
     removePlayedFromQueue: false,
   },
+  karaoke: defaultKaraokeState(),
 };

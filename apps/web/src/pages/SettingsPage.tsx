@@ -8,6 +8,13 @@ import {
   KNOWN_MODALS,
   resetDismissedModals,
 } from '../modals/dismissedModals';
+import {
+  BACKGROUND_MODE_LABELS,
+  BACKGROUND_MODE_OPTIONS,
+  BackgroundMode,
+  readBackgroundMode,
+  writeBackgroundMode,
+} from '../backgrounds/backgroundMode';
 import { api } from '../api';
 import { useSession } from '../session/SessionProvider';
 
@@ -17,6 +24,7 @@ export function SettingsPage() {
   const [resetMessage, setResetMessage] = useState<string | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [libraryStatus, setLibraryStatus] = useState<LibraryStatusDto | null>(null);
+  const [backgroundMode, setBackgroundMode] = useState<BackgroundMode>(() => readBackgroundMode());
 
   useEffect(() => {
     void api.libraryStatus().then(setLibraryStatus).catch(() => {
@@ -35,6 +43,11 @@ export function SettingsPage() {
     void api.patchSettings({ removePlayedFromQueue: checked }).catch((err) => {
       setSettingsError(err instanceof Error ? err.message : String(err));
     });
+  };
+
+  const handleBackgroundModeChange = (mode: BackgroundMode) => {
+    writeBackgroundMode(mode);
+    setBackgroundMode(mode);
   };
 
   return (
@@ -76,6 +89,29 @@ export function SettingsPage() {
         </section>
 
         <section className="settings-section">
+          <h2>Karaoke background</h2>
+          <fieldset className="settings-fieldset">
+            <legend className="sr-only">Karaoke background</legend>
+            {BACKGROUND_MODE_OPTIONS.map((option) => (
+              <label key={option} className="settings-toggle">
+                <input
+                  type="radio"
+                  name="karaoke-background"
+                  value={option}
+                  checked={backgroundMode === option}
+                  onChange={() => handleBackgroundModeChange(option)}
+                />
+                <span>{BACKGROUND_MODE_LABELS[option]}</span>
+              </label>
+            ))}
+          </fieldset>
+          <p className="settings-copy">
+            Applies to the karaoke display on this device. Shuffle picks a random
+            animation for each song.
+          </p>
+        </section>
+
+        <section className="settings-section">
           <h2>Download helper</h2>
           <p className="settings-copy">
             {libraryStatus?.ytdlpAvailable
@@ -86,6 +122,11 @@ export function SettingsPage() {
             {libraryStatus?.ytsaverAvailable
               ? `YT Saver found at ${libraryStatus.ytsaverPath}`
               : `YT Saver not found at ${libraryStatus?.ytsaverPath ?? 'the configured path'}. Set YTSAVER_PATH in .env if it is installed.`}
+          </p>
+          <p className="settings-copy">
+            {libraryStatus?.demucsAvailable
+              ? `Demucs found (${libraryStatus.demucsPath})`
+              : `Demucs not found (${libraryStatus?.demucsPath ?? 'demucs'}). Install with pipx install demucs or set DEMUCS_PATH in .env.`}
           </p>
         </section>
 

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException, forwardRef } from '@nestjs/common';
 import { QueueItemDto } from '@karaokej/shared';
 import { DbService } from '../db/db.service';
 import { SessionService } from '../session/session.service';
@@ -7,6 +7,7 @@ import { SessionService } from '../session/session.service';
 export class QueueService {
   constructor(
     private readonly db: DbService,
+    @Inject(forwardRef(() => SessionService))
     private readonly session: SessionService,
   ) {}
 

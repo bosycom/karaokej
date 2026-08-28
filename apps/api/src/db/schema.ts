@@ -120,4 +120,33 @@ CREATE TABLE IF NOT EXISTS playlist_items (
 );
 
 CREATE INDEX IF NOT EXISTS idx_playlist_items_playlist ON playlist_items(playlist_id, position);
+
+CREATE TABLE IF NOT EXISTS karaoke_settings (
+  track_id INTEGER PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
+  center_amount REAL NOT NULL,
+  bass_retain_hz REAL NOT NULL,
+  treble_retain_hz REAL NOT NULL,
+  makeup_gain_db REAL NOT NULL,
+  eq_bands TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS karaoke_stems (
+  track_id INTEGER PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'pending',
+  model TEXT,
+  model_version TEXT,
+  file_path TEXT,
+  size_bytes INTEGER,
+  source_mtime_ms INTEGER NOT NULL DEFAULT 0,
+  source_size_bytes INTEGER NOT NULL DEFAULT 0,
+  error TEXT,
+  requested_at INTEGER,
+  processed_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_karaoke_stems_status ON karaoke_stems(status);
 `;
