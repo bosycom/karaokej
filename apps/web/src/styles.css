@@ -1066,6 +1066,10 @@ button.badge-fetch:hover:not(:disabled) .badge-action {
   font-weight: 800;
 }
 
+.karaoke-header .eyebrow {
+  font-size: clamp(1.44rem, 3.2vw, 2.72rem);
+}
+
 .back,
 .claim {
   color: var(--muted);

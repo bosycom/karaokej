@@ -46,7 +46,10 @@ export function PlayerBar({ compact = false }: { compact?: boolean }) {
               setFetchingLyrics(true);
               try {
                 const updated = await api.fetchTrackLyrics(track.id);
-                if (updated.lyricStatus === 'not_found') {
+                if (
+                  updated.lyricStatus !== 'present' &&
+                  updated.lyricStatus !== 'instrumental'
+                ) {
                   setLyricSearchTrack(updated);
                 }
               } catch {

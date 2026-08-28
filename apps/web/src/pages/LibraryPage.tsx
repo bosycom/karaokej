@@ -26,6 +26,7 @@ import {
 } from '../components/LibraryFiltersModal';
 import { ClearQueueModal } from '../components/ClearQueueModal';
 import { Modal } from '../components/Modal';
+import { KaraokeModeControl } from '../components/KaraokeModeControl';
 import { PlayerBar } from '../components/PlayerBar';
 import { PlayPlaylistModal } from '../components/PlayPlaylistModal';
 import { PlayTrackModal } from '../components/PlayTrackModal';
@@ -38,10 +39,12 @@ import { MODAL_IDS } from '../modals/dismissedModals';
 import { useConfirmModal } from '../modals/useConfirmModal';
 import { pageWindow } from '../pagination/pageWindow';
 import { formatRelativeScanTime } from '../format';
+import { useKaraoke } from '../session/useKaraoke';
 import { useSession } from '../session/SessionProvider';
 
 export function LibraryPage() {
   const { state, connected, isPlayer, clientId } = useSession();
+  const { karaoke, setMode } = useKaraoke();
   const confirmModal = useConfirmModal();
   const [query, setQuery] = useState('');
   const [inputValue, setInputValue] = useState('');
@@ -130,6 +133,14 @@ export function LibraryPage() {
 
   const prevScanRunning = useRef(false);
   const prevScanProgress = useRef({ current: 0, message: '' as string | null });
+  const prevSeparationRunning = useRef(false);
+
+  useEffect(() => {
+    if (prevSeparationRunning.current && !state.jobs.separation.running) {
+      void loadTracks(query, page, minRating, hideDuplicates);
+    }
+    prevSeparationRunning.current = state.jobs.separation.running;
+  }, [state.jobs.separation.running, query, page, minRating, hideDuplicates]);
 
   useEffect(() => {
     if (prevScanRunning.current && !state.jobs.scan.running) {
@@ -255,7 +266,10 @@ export function LibraryPage() {
     try {
       const updated = await api.fetchTrackLyrics(trackId);
       await loadTracks(query, page);
-      if (updated.lyricStatus === 'not_found') {
+      if (
+        updated.lyricStatus !== 'present' &&
+        updated.lyricStatus !== 'instrumental'
+      ) {
         setLyricSearchTrack(updated);
       }
     } catch (err) {
@@ -275,6 +289,10 @@ export function LibraryPage() {
       return;
     }
     confirmModal.request(MODAL_IDS.scanHelp, () => api.scan());
+  };
+
+  const handleRefreshScanClick = () => {
+    void api.refreshScan().then(() => loadStatus());
   };
 
   const handleFetchLyricsClick = () => {
@@ -534,10 +552,17 @@ export function LibraryPage() {
     <div className="app-shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">Perhaps I can&apos;t sing well, but it is...</p>
+          <p className="eyebrow">I can&apos;t sing, but it&apos;s going to be...</p>
           <h1>Karaokej</h1>
         </div>
         <div className="topbar-actions">
+          <KaraokeModeControl
+            mode={karaoke.mode}
+            compact
+            disabled={!state.playback.currentTrack}
+            demucsAvailable={status?.demucsAvailable ?? false}
+            onChange={setMode}
+          />
           <span className={`pill ${connected ? 'ok' : 'warn'}`}>
             {connected ? 'Live' : <ProcessingText>Reconnecting</ProcessingText>}
           </span>
@@ -566,6 +591,11 @@ export function LibraryPage() {
         >
           {state.jobs.scan.running ? 'Cancel scan' : 'Scan library'}
         </button>
+        {state.jobs.scan.running ? (
+          <button type="button" onClick={handleRefreshScanClick}>
+            Check scan
+          </button>
+        ) : null}
         <button
           type="button"
           disabled={

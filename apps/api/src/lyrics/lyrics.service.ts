@@ -87,7 +87,7 @@ export class LyricsService {
     if (!track) {
       throw new NotFoundException('Track not found');
     }
-    await this.fetchOne(track);
+    await this.fetchOne(track, { allowPending: true });
     this.session.broadcast();
     const updated = this.library.getTrack(trackId);
     if (!updated) {
@@ -204,8 +204,11 @@ export class LyricsService {
     });
   }
 
-  async fetchOne(track: TrackRow): Promise<void> {
-    if (track.metadata_status === 'pending') {
+  async fetchOne(
+    track: TrackRow,
+    options?: { allowPending?: boolean },
+  ): Promise<void> {
+    if (track.metadata_status === 'pending' && !options?.allowPending) {
       return;
     }
     const absolute = this.config.resolveUnderLibrary(track.relative_path);
@@ -224,11 +227,15 @@ export class LyricsService {
     }
 
     try {
+      const metadataReady = track.metadata_status === 'ready';
       const record = await this.lrclib.getBest({
         trackName: track.title,
         artistName: track.artist,
         albumName: track.album,
-        durationSec: track.duration_ms ? track.duration_ms / 1000 : null,
+        durationSec:
+          metadataReady && track.duration_ms
+            ? track.duration_ms / 1000
+            : null,
       });
 
       if (!record) {
