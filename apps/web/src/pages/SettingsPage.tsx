@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { LibraryStatusDto } from '@karaokej/shared';
+import { KaraokeModeControl } from '../components/KaraokeModeControl';
 import { PlayerBar } from '../components/PlayerBar';
 import { ProcessingText } from '../components/ProcessingText';
 import {
@@ -16,10 +17,12 @@ import {
   writeBackgroundMode,
 } from '../backgrounds/backgroundMode';
 import { api } from '../api';
+import { useKaraoke } from '../session/useKaraoke';
 import { useSession } from '../session/SessionProvider';
 
 export function SettingsPage() {
   const { connected, isPlayer, state } = useSession();
+  const { karaoke, setMode } = useKaraoke();
   const [dismissedIds, setDismissedIds] = useState(() => getDismissedIds());
   const [resetMessage, setResetMessage] = useState<string | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
@@ -58,6 +61,13 @@ export function SettingsPage() {
           <h1>Settings</h1>
         </div>
         <div className="topbar-actions">
+          <KaraokeModeControl
+            mode={karaoke.mode}
+            compact
+            disabled={!state.playback.currentTrack}
+            demucsAvailable={libraryStatus?.demucsAvailable ?? false}
+            onChange={setMode}
+          />
           <span className={`pill ${connected ? 'ok' : 'warn'}`}>
             {connected ? 'Live' : <ProcessingText>Reconnecting</ProcessingText>}
           </span>

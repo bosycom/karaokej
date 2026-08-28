@@ -1645,8 +1645,13 @@ button.badge-fetch:hover:not(:disabled) .badge-action {
 .karaoke-mode-control.compact {
   display: flex;
   align-items: center;
+  align-self: center;
   gap: 0.5rem;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+}
+
+.karaoke-mode-control.compact .karaoke-mode-options {
+  align-items: center;
 }
 
 .karaoke-mode-legend {
@@ -1795,6 +1800,11 @@ button.badge-fetch:hover:not(:disabled) .badge-action {
   background: transparent;
 }
 
-.player-bar .karaoke-mode-control.compact {
-  padding: 0 0.25rem 0.35rem;
+.topbar-actions .karaoke-mode-control.compact {
+  flex-wrap: nowrap;
+  align-self: center;
+}
+
+.topbar-actions .karaoke-mode-hint {
+  display: none;
 }

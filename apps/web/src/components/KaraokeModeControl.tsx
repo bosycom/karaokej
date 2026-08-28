@@ -25,10 +25,9 @@ export function KaraokeModeControl({
     <fieldset
       className={`karaoke-mode-control ${compact ? 'compact' : ''}`}
       disabled={disabled}
+      aria-label={compact ? 'Karaoke mode' : undefined}
     >
-      <legend className="karaoke-mode-legend">
-        {compact ? 'Karaoke' : 'Karaoke mode'}
-      </legend>
+      {!compact && <legend className="karaoke-mode-legend">Karaoke mode</legend>}
       <div className="karaoke-mode-options" role="radiogroup" aria-label="Karaoke mode">
         {KARAOKE_MODES.map((option) => {
           const isAi = option === 'ai';
@@ -73,8 +72,4 @@ export function KaraokeModeControl({
       )}
     </fieldset>
   );
-}
-
-export function karaokeModeShortLabel(mode: KaraokeMode): string {
-  return MODE_LABELS[mode];
 }
