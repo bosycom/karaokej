@@ -1,0 +1,118 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { LibraryService } from './library.service';
+import { createMockSession } from '../test/mock-session';
+import { createTestDb, insertTrack, TestDbService } from '../test/test-db';
+
+describe('LibraryService.search', () => {
+  let db: TestDbService;
+  let cleanup: () => void;
+  let library: LibraryService;
+
+  beforeEach(() => {
+    ({ db, cleanup } = createTestDb());
+    library = new LibraryService(
+      db as never,
+      { libraryPath: null } as never,
+      createMockSession(db),
+    );
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('returns all tracks when hideDuplicates is off', () => {
+    insertTrack(db, {
+      relativePath: 'a/song.mp3',
+      title: 'Same Song',
+      artist: 'Artist',
+      format: 'mp3',
+      durationMs: 180_000,
+    });
+    insertTrack(db, {
+      relativePath: 'a/song.opus',
+      title: 'Same Song',
+      artist: 'Artist',
+      format: 'opus',
+      durationMs: 180_000,
+    });
+
+    const page = library.search('', 1, 50, undefined, false);
+    expect(page.total).toBe(2);
+    expect(page.items).toHaveLength(2);
+  });
+
+  it('collapses duplicate formats and prefers lyrics', () => {
+    const mp3Id = insertTrack(db, {
+      relativePath: 'a/song.mp3',
+      title: 'Same Song',
+      artist: 'Artist',
+      format: 'mp3',
+      durationMs: 180_000,
+      lyricStatus: 'missing',
+    });
+    const opusId = insertTrack(db, {
+      relativePath: 'a/song.opus',
+      title: 'Same Song',
+      artist: 'Artist',
+      format: 'opus',
+      durationMs: 180_500,
+      lyricStatus: 'present',
+    });
+
+    const page = library.search('', 1, 50, undefined, true);
+    expect(page.total).toBe(1);
+    expect(page.items).toHaveLength(1);
+    expect(page.items[0]!.id).toBe(opusId);
+    expect(page.items[0]!.id).not.toBe(mp3Id);
+  });
+
+  it('treats durations within about two seconds as the same length', () => {
+    insertTrack(db, {
+      relativePath: 'a/song-a.mp3',
+      title: 'Near Length',
+      artist: 'Artist',
+      durationMs: 180_000,
+    });
+    insertTrack(db, {
+      relativePath: 'a/song-a.flac',
+      title: 'Near Length',
+      artist: 'Artist',
+      durationMs: 181_500,
+    });
+    insertTrack(db, {
+      relativePath: 'b/other.mp3',
+      title: 'Other Song',
+      artist: 'Artist',
+      durationMs: 180_000,
+    });
+
+    const page = library.search('', 1, 50, undefined, true);
+    expect(page.total).toBe(2);
+    expect(page.items.map((track) => track.title).sort()).toEqual([
+      'Near Length',
+      'Other Song',
+    ]);
+  });
+
+  it('keeps lowest id when lyrics status matches', () => {
+    const firstId = insertTrack(db, {
+      relativePath: 'a/first.mp3',
+      title: 'Tie Break',
+      artist: 'Artist',
+      durationMs: 200_000,
+      lyricStatus: 'missing',
+    });
+    insertTrack(db, {
+      relativePath: 'a/second.opus',
+      title: 'Tie Break',
+      artist: 'Artist',
+      durationMs: 200_000,
+      lyricStatus: 'missing',
+    });
+
+    const page = library.search('', 1, 50, undefined, true);
+    expect(page.total).toBe(1);
+    expect(page.items[0]!.id).toBe(firstId);
+  });
+});

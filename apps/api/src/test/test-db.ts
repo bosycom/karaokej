@@ -124,6 +124,10 @@ export function insertTrack(
     artist?: string | null;
     album?: string | null;
     available?: number;
+    format?: string;
+    durationMs?: number | null;
+    lyricStatus?: string;
+    rating?: number | null;
   },
 ): number {
   const now = Date.now();
@@ -131,15 +135,19 @@ export function insertTrack(
     .prepare(
       `INSERT INTO tracks (
          relative_path, format, size_bytes, mtime_ms, title, artist, album,
-         lyric_status, available, created_at, updated_at
-       ) VALUES (?, 'mp3', 1000, ?, ?, ?, ?, 'missing', ?, ?, ?)`,
+         duration_ms, lyric_status, rating, available, created_at, updated_at
+       ) VALUES (?, ?, 1000, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       patch.relativePath,
+      patch.format ?? 'mp3',
       now,
       patch.title,
       patch.artist ?? null,
       patch.album ?? null,
+      patch.durationMs ?? null,
+      patch.lyricStatus ?? 'missing',
+      patch.rating ?? null,
       patch.available ?? 1,
       now,
       now,

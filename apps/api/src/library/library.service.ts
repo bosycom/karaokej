@@ -27,6 +27,23 @@ import {
 
 const LIBRARY_SCAN_ROOT_KEY = 'library_scan_root';
 
+const TRACK_SELECT_COLUMNS = `
+  id, relative_path, format, size_bytes, mtime_ms, title, artist, album, album_artist,
+  track_no, duration_ms, lyric_status, lyric_source, lyric_checked_at, lrclib_id,
+  fingerprint, rating, available, created_at, updated_at
+`;
+
+const DEDUPE_PARTITION = `
+  LOWER(TRIM(COALESCE(artist, ''))),
+  LOWER(TRIM(title)),
+  CAST(COALESCE(duration_ms, -1) / 2000 AS INTEGER)
+`;
+
+const DEDUPE_KEEP_ORDER = `
+  CASE WHEN lyric_status = 'present' THEN 0 ELSE 1 END,
+  id
+`;
+
 @Injectable()
 export class LibraryService {
   private readonly logger = new Logger(LibraryService.name);
@@ -119,6 +136,7 @@ export class LibraryService {
     page: number,
     limit: number,
     minRating?: number,
+    hideDuplicates = false,
   ): TrackPageDto {
     const safePage = Math.max(1, page);
     const safeLimit = Math.min(100, Math.max(1, limit));
@@ -130,18 +148,26 @@ export class LibraryService {
     const availableSql = ' AND available = 1';
 
     if (!query) {
-      const total = (
-        this.db.raw
-          .prepare(`SELECT COUNT(*) AS n FROM tracks WHERE 1=1${availableSql}${ratingSql}`)
-          .get(...ratingParams) as { n: number }
-      ).n;
-      const rows = this.db.raw
-        .prepare(
-          `SELECT * FROM tracks WHERE 1=1${availableSql}${ratingSql}
-           ORDER BY artist COLLATE NOCASE, album COLLATE NOCASE, track_no, title COLLATE NOCASE
-           LIMIT ? OFFSET ?`,
-        )
-        .all(...ratingParams, safeLimit, offset) as TrackRow[];
+      const baseWhere = `1=1${availableSql}${ratingSql}`;
+      const orderBy =
+        'artist COLLATE NOCASE, album COLLATE NOCASE, track_no, title COLLATE NOCASE';
+      const { total, rows } = hideDuplicates
+        ? this.searchDeduped(
+            `SELECT ${TRACK_SELECT_COLUMNS} FROM tracks WHERE ${baseWhere}`,
+            orderBy,
+            ratingParams,
+            safeLimit,
+            offset,
+          )
+        : this.searchPlain(
+            `SELECT COUNT(*) AS n FROM tracks WHERE ${baseWhere}`,
+            `SELECT ${TRACK_SELECT_COLUMNS} FROM tracks WHERE ${baseWhere}
+             ORDER BY ${orderBy}
+             LIMIT ? OFFSET ?`,
+            ratingParams,
+            safeLimit,
+            offset,
+          );
       return {
         items: rows.map(trackToDto),
         total,
@@ -154,41 +180,60 @@ export class LibraryService {
     let total = 0;
     let rows: TrackRow[] = [];
     try {
-      total = (
-        this.db.raw
-          .prepare(
-            `SELECT COUNT(*) AS n FROM tracks t
-             JOIN tracks_fts f ON f.rowid = t.id
-             WHERE tracks_fts MATCH ? AND t.available = 1${ratingSql}`,
-          )
-          .get(match, ...ratingParams) as { n: number }
-      ).n;
-      rows = this.db.raw
-        .prepare(
-          `SELECT t.* FROM tracks t
+      const ftsWhere = `tracks_fts MATCH ? AND t.available = 1${ratingSql}`;
+      const ftsOrder = 'rank, t.artist COLLATE NOCASE, t.title COLLATE NOCASE';
+      const ftsParams = [match, ...ratingParams];
+      if (hideDuplicates) {
+        ({ total, rows } = this.searchDeduped(
+          `SELECT ${TRACK_SELECT_COLUMNS.replace(/\b(\w+)/g, 't.$1')}, rank
+           FROM tracks t
            JOIN tracks_fts f ON f.rowid = t.id
-           WHERE tracks_fts MATCH ? AND t.available = 1${ratingSql}
-           ORDER BY rank, t.artist COLLATE NOCASE, t.title COLLATE NOCASE
+           WHERE ${ftsWhere}`,
+          ftsOrder,
+          ftsParams,
+          safeLimit,
+          offset,
+        ));
+      } else {
+        ({ total, rows } = this.searchPlain(
+          `SELECT COUNT(*) AS n FROM tracks t
+           JOIN tracks_fts f ON f.rowid = t.id
+           WHERE ${ftsWhere}`,
+          `SELECT ${TRACK_SELECT_COLUMNS.replace(/\b(\w+)/g, 't.$1')} FROM tracks t
+           JOIN tracks_fts f ON f.rowid = t.id
+           WHERE ${ftsWhere}
+           ORDER BY ${ftsOrder}
            LIMIT ? OFFSET ?`,
-        )
-        .all(match, ...ratingParams, safeLimit, offset) as TrackRow[];
+          ftsParams,
+          safeLimit,
+          offset,
+        ));
+      }
     } catch (err) {
       this.logger.warn(`FTS query failed, falling back to LIKE: ${err}`);
       const like = `%${query.replaceAll('%', '\\%')}%`;
       const likeWhere = `(title LIKE ? ESCAPE '\\' OR artist LIKE ? ESCAPE '\\' OR album LIKE ? ESCAPE '\\') AND available = 1${ratingSql}`;
-      total = (
-        this.db.raw
-          .prepare(`SELECT COUNT(*) AS n FROM tracks WHERE ${likeWhere}`)
-          .get(like, like, like, ...ratingParams) as { n: number }
-      ).n;
-      rows = this.db.raw
-        .prepare(
-          `SELECT * FROM tracks
-           WHERE ${likeWhere}
-           ORDER BY artist COLLATE NOCASE, title COLLATE NOCASE
+      const likeOrder = 'artist COLLATE NOCASE, title COLLATE NOCASE';
+      const likeParams = [like, like, like, ...ratingParams];
+      if (hideDuplicates) {
+        ({ total, rows } = this.searchDeduped(
+          `SELECT ${TRACK_SELECT_COLUMNS} FROM tracks WHERE ${likeWhere}`,
+          likeOrder,
+          likeParams,
+          safeLimit,
+          offset,
+        ));
+      } else {
+        ({ total, rows } = this.searchPlain(
+          `SELECT COUNT(*) AS n FROM tracks WHERE ${likeWhere}`,
+          `SELECT ${TRACK_SELECT_COLUMNS} FROM tracks WHERE ${likeWhere}
+           ORDER BY ${likeOrder}
            LIMIT ? OFFSET ?`,
-        )
-        .all(like, like, like, ...ratingParams, safeLimit, offset) as TrackRow[];
+          likeParams,
+          safeLimit,
+          offset,
+        ));
+      }
     }
 
     return {
@@ -197,6 +242,58 @@ export class LibraryService {
       page: safePage,
       limit: safeLimit,
     };
+  }
+
+  private searchPlain(
+    countSql: string,
+    rowsSql: string,
+    params: unknown[],
+    limit: number,
+    offset: number,
+  ): { total: number; rows: TrackRow[] } {
+    const total = (this.db.raw.prepare(countSql).get(...params) as { n: number }).n;
+    const rows = this.db.raw
+      .prepare(rowsSql)
+      .all(...params, limit, offset) as TrackRow[];
+    return { total, rows };
+  }
+
+  private searchDeduped(
+    filteredSql: string,
+    orderBy: string,
+    params: unknown[],
+    limit: number,
+    offset: number,
+  ): { total: number; rows: TrackRow[] } {
+    const countSql = `
+      WITH filtered AS (${filteredSql}),
+      ranked AS (
+        SELECT *, ROW_NUMBER() OVER (
+          PARTITION BY ${DEDUPE_PARTITION}
+          ORDER BY ${DEDUPE_KEEP_ORDER}
+        ) AS rn
+        FROM filtered
+      )
+      SELECT COUNT(*) AS n FROM ranked WHERE rn = 1
+    `;
+    const rowsSql = `
+      WITH filtered AS (${filteredSql}),
+      ranked AS (
+        SELECT *, ROW_NUMBER() OVER (
+          PARTITION BY ${DEDUPE_PARTITION}
+          ORDER BY ${DEDUPE_KEEP_ORDER}
+        ) AS rn
+        FROM filtered
+      )
+      SELECT ${TRACK_SELECT_COLUMNS} FROM ranked WHERE rn = 1
+      ORDER BY ${orderBy}
+      LIMIT ? OFFSET ?
+    `;
+    const total = (this.db.raw.prepare(countSql).get(...params) as { n: number }).n;
+    const rows = this.db.raw
+      .prepare(rowsSql)
+      .all(...params, limit, offset) as TrackRow[];
+    return { total, rows };
   }
 
   async startScan(): Promise<void> {
