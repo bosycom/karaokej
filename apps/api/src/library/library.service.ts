@@ -40,10 +40,12 @@ export class LibraryService {
 
   status(): LibraryStatusDto {
     const trackCount = this.db.raw
-      .prepare(`SELECT COUNT(*) AS n FROM tracks`)
+      .prepare(`SELECT COUNT(*) AS n FROM tracks WHERE available = 1`)
       .get() as { n: number };
     const withLyrics = this.db.raw
-      .prepare(`SELECT COUNT(*) AS n FROM tracks WHERE lyric_status = 'present'`)
+      .prepare(
+        `SELECT COUNT(*) AS n FROM tracks WHERE available = 1 AND lyric_status = 'present'`,
+      )
       .get() as { n: number };
     return {
       trackCount: trackCount.n,
@@ -112,16 +114,17 @@ export class LibraryService {
     const rating = this.normalizeMinRating(minRating);
     const ratingSql = rating == null ? '' : ' AND rating >= ?';
     const ratingParams = rating == null ? [] : [rating];
+    const availableSql = ' AND available = 1';
 
     if (!query) {
       const total = (
         this.db.raw
-          .prepare(`SELECT COUNT(*) AS n FROM tracks WHERE 1=1${ratingSql}`)
+          .prepare(`SELECT COUNT(*) AS n FROM tracks WHERE 1=1${availableSql}${ratingSql}`)
           .get(...ratingParams) as { n: number }
       ).n;
       const rows = this.db.raw
         .prepare(
-          `SELECT * FROM tracks WHERE 1=1${ratingSql}
+          `SELECT * FROM tracks WHERE 1=1${availableSql}${ratingSql}
            ORDER BY artist COLLATE NOCASE, album COLLATE NOCASE, track_no, title COLLATE NOCASE
            LIMIT ? OFFSET ?`,
         )
@@ -143,7 +146,7 @@ export class LibraryService {
           .prepare(
             `SELECT COUNT(*) AS n FROM tracks t
              JOIN tracks_fts f ON f.rowid = t.id
-             WHERE tracks_fts MATCH ?${ratingSql}`,
+             WHERE tracks_fts MATCH ? AND t.available = 1${ratingSql}`,
           )
           .get(match, ...ratingParams) as { n: number }
       ).n;
@@ -151,7 +154,7 @@ export class LibraryService {
         .prepare(
           `SELECT t.* FROM tracks t
            JOIN tracks_fts f ON f.rowid = t.id
-           WHERE tracks_fts MATCH ?${ratingSql}
+           WHERE tracks_fts MATCH ? AND t.available = 1${ratingSql}
            ORDER BY rank, t.artist COLLATE NOCASE, t.title COLLATE NOCASE
            LIMIT ? OFFSET ?`,
         )
@@ -159,7 +162,7 @@ export class LibraryService {
     } catch (err) {
       this.logger.warn(`FTS query failed, falling back to LIKE: ${err}`);
       const like = `%${query.replaceAll('%', '\\%')}%`;
-      const likeWhere = `(title LIKE ? ESCAPE '\\' OR artist LIKE ? ESCAPE '\\' OR album LIKE ? ESCAPE '\\')${ratingSql}`;
+      const likeWhere = `(title LIKE ? ESCAPE '\\' OR artist LIKE ? ESCAPE '\\' OR album LIKE ? ESCAPE '\\') AND available = 1${ratingSql}`;
       total = (
         this.db.raw
           .prepare(`SELECT COUNT(*) AS n FROM tracks WHERE ${likeWhere}`)
@@ -270,6 +273,7 @@ export class LibraryService {
         if (changed) {
           await this.upsertFile(file);
         } else {
+          this.markAvailable(file.relativePath);
           this.refreshLyricPresence(file.relativePath, file.absolutePath);
           await this.refreshRatingCache(file.relativePath, file.absolutePath);
         }
@@ -290,26 +294,7 @@ export class LibraryService {
         .filter((row) => !seen.has(row.relative_path))
         .map((row) => row.id);
       if (staleIds.length > 0) {
-        const deleteOne = this.db.raw.prepare(
-          `DELETE FROM tracks WHERE id = ?`,
-        );
-        const stash = this.db.raw.prepare(
-          `INSERT INTO lyric_memory (fingerprint, lyric_status, lyric_source, lyric_checked_at, lrclib_id)
-           SELECT fingerprint, lyric_status, lyric_source, lyric_checked_at, lrclib_id
-           FROM tracks WHERE id = ? AND fingerprint IS NOT NULL
-           ON CONFLICT(fingerprint) DO UPDATE SET
-             lyric_status = excluded.lyric_status,
-             lyric_source = excluded.lyric_source,
-             lyric_checked_at = excluded.lyric_checked_at,
-             lrclib_id = excluded.lrclib_id`,
-        );
-        const tx = this.db.raw.transaction((ids: number[]) => {
-          for (const id of ids) {
-            stash.run(id);
-            deleteOne.run(id);
-          }
-        });
-        tx(staleIds);
+        this.markTracksUnavailable(staleIds);
       }
 
       this.setStoredScanRoot(root);
@@ -328,6 +313,53 @@ export class LibraryService {
         message: `Scan failed: ${message}`,
       });
     }
+  }
+
+  private markAvailable(relativePath: string): void {
+    this.db.raw
+      .prepare(
+        `UPDATE tracks SET available = 1, updated_at = ? WHERE relative_path = ? AND available = 0`,
+      )
+      .run(Date.now(), relativePath);
+  }
+
+  private markTracksUnavailable(trackIds: number[]): void {
+    const now = Date.now();
+    const mark = this.db.raw.prepare(
+      `UPDATE tracks SET available = 0, updated_at = ? WHERE id = ?`,
+    );
+    const deleteQueue = this.db.raw.prepare(
+      `DELETE FROM queue_items WHERE track_id = ?`,
+    );
+    const tx = this.db.raw.transaction((ids: number[]) => {
+      for (const id of ids) {
+        mark.run(now, id);
+        deleteQueue.run(id);
+      }
+    });
+    tx(trackIds);
+
+    const playback = this.db.raw
+      .prepare(`SELECT current_queue_item_id, status FROM playback_state WHERE id = 1`)
+      .get() as { current_queue_item_id: number | null; status: string };
+    if (playback.current_queue_item_id) {
+      const stillThere = this.db.raw
+        .prepare(`SELECT id FROM queue_items WHERE id = ?`)
+        .get(playback.current_queue_item_id);
+      if (!stillThere) {
+        const first = this.db.raw
+          .prepare(
+            `SELECT id FROM queue_items ORDER BY position ASC, id ASC LIMIT 1`,
+          )
+          .get() as { id: number } | undefined;
+        this.db.raw
+          .prepare(
+            `UPDATE playback_state SET current_queue_item_id = ?, status = ?, position_ms = 0, seek_seq = seek_seq + 1, updated_at = ? WHERE id = 1`,
+          )
+          .run(first?.id ?? null, first ? 'paused' : 'idle', now);
+      }
+    }
+    this.session.broadcast();
   }
 
   private refreshLyricPresence(relativePath: string, absolutePath: string): void {
@@ -396,8 +428,8 @@ export class LibraryService {
         `INSERT INTO tracks (
            relative_path, format, size_bytes, mtime_ms, title, artist, album, album_artist,
            track_no, duration_ms, lyric_status, lyric_source, lyric_checked_at, lrclib_id,
-           fingerprint, rating, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           fingerprint, rating, available, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
          ON CONFLICT(relative_path) DO UPDATE SET
            format = excluded.format,
            size_bytes = excluded.size_bytes,
@@ -414,6 +446,7 @@ export class LibraryService {
            lrclib_id = excluded.lrclib_id,
            fingerprint = excluded.fingerprint,
            rating = excluded.rating,
+           available = 1,
            updated_at = excluded.updated_at`,
       )
       .run(

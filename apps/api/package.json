@@ -6,6 +6,8 @@
     "build": "nest build",
     "start": "node dist/main.js",
     "start:dev": "nest start --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "clean": "rm -rf dist"
   },
   "dependencies": {
@@ -17,6 +19,7 @@
     "@nestjs/platform-ws": "^11.1.6",
     "@nestjs/websockets": "^11.1.6",
     "music-metadata": "^11.9.0",
+    "node-id3": "^0.2.9",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
     "ws": "^8.18.3"
@@ -27,6 +30,7 @@
     "@types/express": "^5.0.3",
     "@types/node": "^24.3.0",
     "@types/ws": "^8.18.1",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
   }
 }

@@ -90,8 +90,9 @@ export class LyricsService {
     const candidates = this.db.raw
       .prepare(
         `SELECT * FROM tracks
-         WHERE lyric_status IN ('missing', 'error')
-            OR (lyric_status = 'not_found' AND (lyric_checked_at IS NULL OR lyric_checked_at < ?))
+         WHERE available = 1
+           AND (lyric_status IN ('missing', 'error')
+            OR (lyric_status = 'not_found' AND (lyric_checked_at IS NULL OR lyric_checked_at < ?)))
          ORDER BY artist COLLATE NOCASE, title COLLATE NOCASE`,
       )
       .all(Date.now() - NOT_FOUND_COOLDOWN_MS) as TrackRow[];

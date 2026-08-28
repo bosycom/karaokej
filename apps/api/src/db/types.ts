@@ -18,6 +18,7 @@ export interface TrackRow {
   lrclib_id: number | null;
   fingerprint: string | null;
   rating: number | null;
+  available: number;
   created_at: number;
   updated_at: number;
 }
@@ -64,4 +65,20 @@ export interface JobRow {
   total: number;
   message: string | null;
   updated_at: number;
+}
+
+export interface PlaylistRow {
+  id: number;
+  name: string;
+  description: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface PlaylistItemRow {
+  id: number;
+  playlist_id: number;
+  track_id: number;
+  position: number;
+  added_at: number;
 }

@@ -1,0 +1,151 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
+import { SCHEMA_SQL } from '../db/schema';
+
+interface Statement {
+  run(...params: unknown[]): unknown;
+  get(...params: unknown[]): unknown;
+  all(...params: unknown[]): unknown[];
+}
+
+export class TestSqliteDb {
+  constructor(private readonly db: DatabaseSync) {}
+
+  exec(sql: string): void {
+    this.db.exec(sql);
+  }
+
+  prepare(sql: string): Statement {
+    const stmt = this.db.prepare(sql);
+    return {
+      run: (...params: unknown[]) => stmt.run(...(params as SQLInputValue[])),
+      get: (...params: unknown[]) => stmt.get(...(params as SQLInputValue[])),
+      all: (...params: unknown[]) => stmt.all(...(params as SQLInputValue[])),
+    };
+  }
+
+  transaction<T extends unknown[], R>(fn: (...args: T) => R): (...args: T) => R {
+    return (...args: T) => {
+      this.db.exec('BEGIN');
+      try {
+        const result = fn(...args);
+        this.db.exec('COMMIT');
+        return result;
+      } catch (err) {
+        this.db.exec('ROLLBACK');
+        throw err;
+      }
+    };
+  }
+
+  close(): void {
+    this.db.close();
+  }
+}
+
+export class TestDbService {
+  readonly raw: TestSqliteDb;
+
+  constructor(dbPath: string) {
+    const raw = new DatabaseSync(dbPath);
+    this.raw = new TestSqliteDb(raw);
+    this.raw.exec('PRAGMA foreign_keys = ON');
+    this.raw.exec(SCHEMA_SQL);
+    this.migrate();
+    this.seedSingletons();
+  }
+
+  private migrate(): void {
+    const columns = this.raw
+      .prepare(`PRAGMA table_info(tracks)`)
+      .all() as Array<{ name: string }>;
+    const names = new Set(columns.map((col) => col.name));
+    if (!names.has('rating')) {
+      this.raw.exec(`ALTER TABLE tracks ADD COLUMN rating INTEGER`);
+    }
+    if (!names.has('available')) {
+      this.raw.exec(`ALTER TABLE tracks ADD COLUMN available INTEGER NOT NULL DEFAULT 1`);
+      this.raw.exec(`UPDATE tracks SET available = 1 WHERE available IS NULL`);
+    }
+    this.raw.exec(`CREATE INDEX IF NOT EXISTS idx_tracks_rating ON tracks(rating)`);
+    this.raw.exec(`CREATE INDEX IF NOT EXISTS idx_tracks_available ON tracks(available)`);
+  }
+
+  private seedSingletons(): void {
+    const now = Date.now();
+    this.raw
+      .prepare(
+        `INSERT OR IGNORE INTO playback_state (id, status, position_ms, volume, seek_seq, updated_at)
+         VALUES (1, 'idle', 0, 1, 0, ?)`,
+      )
+      .run(now);
+    this.raw
+      .prepare(
+        `INSERT OR IGNORE INTO jobs (kind, running, current, total, message, updated_at)
+         VALUES (?, 0, 0, 0, NULL, ?)`,
+      )
+      .run('scan', now);
+    this.raw
+      .prepare(
+        `INSERT OR IGNORE INTO jobs (kind, running, current, total, message, updated_at)
+         VALUES (?, 0, 0, 0, NULL, ?)`,
+      )
+      .run('lyrics', now);
+    this.raw
+      .prepare(`INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, ?)`)
+      .run('remove_played_from_queue', '0');
+  }
+
+  close(): void {
+    this.raw.close();
+  }
+}
+
+export function createTestDb(): { db: TestDbService; cleanup: () => void } {
+  const dir = mkdtempSync(join(tmpdir(), 'karaokej-test-'));
+  const path = join(dir, 'test.sqlite');
+  const db = new TestDbService(path);
+  return {
+    db,
+    cleanup: () => {
+      db.close();
+      rmSync(dir, { recursive: true, force: true });
+    },
+  };
+}
+
+export function insertTrack(
+  db: TestDbService,
+  patch: {
+    relativePath: string;
+    title: string;
+    artist?: string | null;
+    album?: string | null;
+    available?: number;
+  },
+): number {
+  const now = Date.now();
+  db.raw
+    .prepare(
+      `INSERT INTO tracks (
+         relative_path, format, size_bytes, mtime_ms, title, artist, album,
+         lyric_status, available, created_at, updated_at
+       ) VALUES (?, 'mp3', 1000, ?, ?, ?, ?, 'missing', ?, ?, ?)`,
+    )
+    .run(
+      patch.relativePath,
+      now,
+      patch.title,
+      patch.artist ?? null,
+      patch.album ?? null,
+      patch.available ?? 1,
+      now,
+      now,
+    );
+  const row = db.raw
+    .prepare(`SELECT id FROM tracks WHERE relative_path = ?`)
+    .get(patch.relativePath) as { id: number };
+  return row.id;
+}

@@ -6,5 +6,5 @@
     "declaration": false,
     "incremental": false
   },
-  "exclude": ["node_modules", "dist"]
+  "exclude": ["node_modules", "dist", "src/test", "**/*.spec.ts"]
 }

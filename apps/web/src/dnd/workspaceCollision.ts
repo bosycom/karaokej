@@ -3,18 +3,28 @@ import {
   pointerWithin,
   type CollisionDetection,
 } from '@dnd-kit/core';
-import { isQueueDropTarget, parseDragId, QUEUE_DROPPABLE } from './dragIds';
+import {
+  isPlaylistDropTarget,
+  isQueueDropTarget,
+  parseDragId,
+  QUEUE_DROPPABLE,
+} from './dragIds';
 
 export const workspaceCollision: CollisionDetection = (args) => {
   const kind = parseDragId(args.active.id)?.kind;
 
   if (kind === 'track') {
-    const hits = pointerWithin(args).filter((collision) => isQueueDropTarget(collision.id));
-    const overItem = hits.find((collision) => parseDragId(collision.id)?.kind === 'queue');
+    const hits = pointerWithin(args);
+    const playlistHit = hits.find((collision) => isPlaylistDropTarget(collision.id));
+    if (playlistHit) {
+      return [playlistHit];
+    }
+    const queueHits = hits.filter((collision) => isQueueDropTarget(collision.id));
+    const overItem = queueHits.find((collision) => parseDragId(collision.id)?.kind === 'queue');
     if (overItem) {
       return [overItem];
     }
-    const overPane = hits.find((collision) => collision.id === QUEUE_DROPPABLE);
+    const overPane = queueHits.find((collision) => collision.id === QUEUE_DROPPABLE);
     return overPane ? [overPane] : [];
   }
 
@@ -36,6 +46,17 @@ export const workspaceCollision: CollisionDetection = (args) => {
       return closestCenter({ ...args, droppableContainers: queueItems });
     }
     return [];
+  }
+
+  if (kind === 'playlist-item') {
+    const playlistItems = args.droppableContainers.filter(
+      (container) => parseDragId(container.id)?.kind === 'playlist-item',
+    );
+    const overItem = pointerWithin({ ...args, droppableContainers: playlistItems });
+    if (overItem.length > 0) {
+      return overItem;
+    }
+    return closestCenter({ ...args, droppableContainers: playlistItems });
   }
 
   return pointerWithin(args);
