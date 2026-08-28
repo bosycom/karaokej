@@ -1,10 +1,11 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { existsSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import {
   JobStatusDto,
   LibraryStatusDto,
   TrackPageDto,
+  TrackPathDto,
 } from '@karaokej/shared';
 import { AppConfigService } from '../config/app-config.service';
 import { DbService } from '../db/db.service';
@@ -99,6 +100,18 @@ export class LibraryService {
     return this.db.raw
       .prepare(`SELECT * FROM tracks WHERE id = ?`)
       .get(id) as TrackRow | undefined;
+  }
+
+  getTrackPath(id: number): TrackPathDto {
+    const track = this.getTrack(id);
+    if (!track) {
+      throw new NotFoundException('Track not found');
+    }
+    const absolute = this.config.resolveUnderLibrary(track.relative_path);
+    if (!absolute) {
+      throw new BadRequestException('Track path is unavailable');
+    }
+    return { path: absolute };
   }
 
   search(

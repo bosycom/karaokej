@@ -1,9 +1,9 @@
 import { useDraggable } from '@dnd-kit/core';
-import { FiList } from 'react-icons/fi';
 import { TrackDto } from '@karaokej/shared';
 import { api } from '../api';
 import { trackDragId } from '../dnd/dragIds';
 import { formatDuration, lyricBadge } from '../format';
+import { IconMenu } from './IconMenu';
 import { ProcessingText } from './ProcessingText';
 import { StarRating } from './StarRating';
 
@@ -27,6 +27,11 @@ export function DraggableTrackRow({
   const badge = lyricBadge(track.lyricStatus);
   const canFetch = track.lyricStatus !== 'present';
   const fetchLabel = fetching ? 'Fetching…' : 'Fetch lyric';
+
+  const copyFilePath = async () => {
+    const { path } = await api.trackPath(track.id);
+    await navigator.clipboard.writeText(path);
+  };
 
   return (
     <li ref={setNodeRef} className={isDragging ? 'dragging' : undefined}>
@@ -62,15 +67,16 @@ export function DraggableTrackRow({
           ariaLabel={`Rate ${track.title}`}
           onConfirm={(rating) => onRate(track.id, rating)}
         />
-        <button
-          type="button"
-          className="icon-btn"
-          onClick={() => void api.addToQueue(track.id)}
-          title="Queue"
-          aria-label="Queue"
-        >
-          <FiList aria-hidden />
-        </button>
+        <IconMenu
+          ariaLabel={`Actions for ${track.title}`}
+          items={[
+            {
+              id: 'copy-file-path',
+              label: 'Copy file path',
+              onSelect: copyFilePath,
+            },
+          ]}
+        />
       </div>
     </li>
   );
