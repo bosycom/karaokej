@@ -45,6 +45,43 @@ export class QueueService {
     return this.replaceWithTracks([], false);
   }
 
+  clearExceptCurrent(): QueueItemDto[] {
+    const playback = this.db.raw
+      .prepare(`SELECT current_queue_item_id FROM playback_state WHERE id = 1`)
+      .get() as { current_queue_item_id: number | null };
+    const currentId = playback.current_queue_item_id;
+    if (
+      !currentId ||
+      !this.db.raw.prepare(`SELECT id FROM queue_items WHERE id = ?`).get(currentId)
+    ) {
+      return this.clear();
+    }
+    this.db.raw.prepare(`DELETE FROM queue_items WHERE id != ?`).run(currentId);
+    this.reindex();
+    this.session.broadcast();
+    return this.list();
+  }
+
+  clearBeforeCurrent(): QueueItemDto[] {
+    const playback = this.db.raw
+      .prepare(`SELECT current_queue_item_id FROM playback_state WHERE id = 1`)
+      .get() as { current_queue_item_id: number | null };
+    const currentId = playback.current_queue_item_id;
+    if (!currentId) {
+      return this.list();
+    }
+    const row = this.db.raw
+      .prepare(`SELECT position FROM queue_items WHERE id = ?`)
+      .get(currentId) as { position: number } | undefined;
+    if (!row) {
+      return this.list();
+    }
+    this.db.raw.prepare(`DELETE FROM queue_items WHERE position < ?`).run(row.position);
+    this.reindex();
+    this.session.broadcast();
+    return this.list();
+  }
+
   replaceWithTracks(trackIds: number[], startPlaying: boolean): QueueItemDto[] {
     const validated = this.validateAvailableTrackIds(trackIds);
     const tx = this.db.raw.transaction(() => {

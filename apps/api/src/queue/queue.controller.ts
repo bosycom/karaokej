@@ -7,6 +7,7 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { QueueService } from './queue.service';
 
@@ -33,7 +34,13 @@ export class QueueController {
   }
 
   @Delete()
-  clear() {
+  clear(@Query('mode') mode?: string) {
+    if (mode === 'except_current') {
+      return this.queue.clearExceptCurrent();
+    }
+    if (mode === 'before_current') {
+      return this.queue.clearBeforeCurrent();
+    }
     return this.queue.clear();
   }
 
