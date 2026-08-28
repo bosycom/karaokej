@@ -29,6 +29,20 @@ export class LrclibClient {
     }
   }
 
+  async searchQuery(q: string): Promise<LrclibRecord[]> {
+    const query = new URLSearchParams({ q });
+    const data = await this.request(`/api/search?${query.toString()}`);
+    return Array.isArray(data) ? (data as LrclibRecord[]) : [];
+  }
+
+  async getById(id: number): Promise<LrclibRecord | null> {
+    const data = await this.request(`/api/get/${id}`);
+    if (!data) {
+      return null;
+    }
+    return data as LrclibRecord;
+  }
+
   async getBest(params: {
     trackName: string;
     artistName: string;
