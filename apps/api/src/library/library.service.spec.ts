@@ -156,6 +156,25 @@ describe('LibraryService.search', () => {
     expect(page.items[0]!.title).toBe('Bad Duration');
     expect(page.items[0]!.durationMs).toBeNull();
   });
+
+  it('finds tracks when the search query contains ampersands and periods', () => {
+    const artist = 'Cappadonna feat. Timbo King & Masta Killa';
+    insertTrack(db, {
+      relativePath: 'a/cappadonna.mp3',
+      title: 'Some Track',
+      artist,
+      format: 'mp3',
+      durationMs: 180_000,
+    });
+
+    const fullQuery = library.search(artist, 1, 50);
+    expect(fullQuery.total).toBe(1);
+    expect(fullQuery.items[0]!.artist).toBe(artist);
+
+    const partialQuery = library.search('Cappadonna & Killa', 1, 50);
+    expect(partialQuery.total).toBe(1);
+    expect(partialQuery.items[0]!.artist).toBe(artist);
+  });
 });
 
 describe('LibraryService.getRandomArtist', () => {

@@ -1,10 +1,13 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { existsSync, statSync } from 'node:fs';
 import { access, constants } from 'node:fs/promises';
+import { join, relative } from 'node:path';
 import {
   JobStatusDto,
   LibraryStatusDto,
   RandomArtistDto,
   ScanIssueDto,
+  TrackDto,
   TrackPageDto,
   TrackPathDto,
 } from '@karaokej/shared';
@@ -105,10 +108,14 @@ export class LibraryService {
       scanIssues: this.getScanIssues(),
       scan: this.jobStatus('scan'),
       lyricsFetch: this.jobStatus('lyrics'),
+      ytsaverAvailable: existsSync(this.config.ytsaverPath),
+      ytsaverPath: this.config.ytsaverPath,
+      ytdlpAvailable: existsSync(this.config.ytdlpPath),
+      ytdlpPath: this.config.ytdlpPath,
     };
   }
 
-  jobStatus(kind: 'scan' | 'lyrics'): JobStatusDto {
+  jobStatus(kind: 'scan' | 'lyrics' | 'download'): JobStatusDto {
     const row = this.db.raw
       .prepare(`SELECT * FROM jobs WHERE kind = ?`)
       .get(kind) as JobRow | undefined;
@@ -122,7 +129,7 @@ export class LibraryService {
   }
 
   setJob(
-    kind: 'scan' | 'lyrics',
+    kind: 'scan' | 'lyrics' | 'download',
     patch: {
       running?: boolean;
       current?: number;
@@ -194,6 +201,80 @@ export class LibraryService {
       throw new BadRequestException('Track path is unavailable');
     }
     return { path: absolute };
+  }
+
+  async ingestDownloadedFile(absolutePath: string): Promise<TrackDto> {
+    if (!existsSync(absolutePath)) {
+      throw new BadRequestException('Downloaded file not found');
+    }
+    const layout = this.config.libraryLayout;
+    const firstRoot = layout.roots[0];
+    if (!firstRoot) {
+      throw new BadRequestException(
+        'MUSIC_LIBRARY_PATH is not configured. Set it in .env and restart.',
+      );
+    }
+    const downloadsDir = join(firstRoot, 'Downloads');
+    const normalizedAbsolute = absolutePath.replace(/\\/g, '/');
+    const normalizedDownloads = downloadsDir.replace(/\\/g, '/');
+    if (
+      !normalizedAbsolute.startsWith(`${normalizedDownloads}/`) &&
+      normalizedAbsolute !== normalizedDownloads
+    ) {
+      throw new BadRequestException('File is outside the download folder');
+    }
+
+    const relativeUnderRoot = relative(firstRoot, absolutePath).replace(/\\/g, '/');
+    const key = layout.keys.get(firstRoot);
+    if (!key) {
+      throw new BadRequestException('Library root key is unavailable');
+    }
+    const relativePath = prefixCataloguePath(
+      key,
+      relativeUnderRoot,
+      layout.multiRoot,
+    );
+
+    const stat = statSync(absolutePath);
+    let hasLrc = false;
+    try {
+      await access(lyricPathFor(absolutePath), constants.F_OK);
+      hasLrc = true;
+    } catch {
+      hasLrc = false;
+    }
+
+    const now = Date.now();
+    const pathItem: ScanChunkItem = {
+      absolutePath,
+      relativePath,
+      sizeBytes: stat.size,
+      mtimeMs: stat.mtimeMs,
+      format: 'mp3',
+      unchanged: false,
+      hasLrc,
+      metadata: null,
+    };
+    this.upsertPathTrackInTx(pathItem, now);
+
+    const result = await readTrackMetadata(absolutePath, relativePath, {
+      fsTimeoutMs: this.config.scanFsTimeoutMs,
+      durationMode: this.config.scanDurationMode,
+    });
+    const itemWithMeta: ScanChunkItem = {
+      ...pathItem,
+      metadata: result.metadata,
+      hasLrc,
+    };
+    this.upsertTagsTrackInTx(itemWithMeta, result.metadata, now);
+
+    const row = this.db.raw
+      .prepare(`SELECT ${TRACK_SELECT_COLUMNS} FROM tracks WHERE relative_path = ?`)
+      .get(relativePath) as TrackRow | undefined;
+    if (!row) {
+      throw new BadRequestException('Failed to index downloaded file');
+    }
+    return trackToDto(row);
   }
 
   backfillDurationIfMissing(trackId: number): void {
@@ -1280,7 +1361,7 @@ export class LibraryService {
   private toFtsQuery(raw: string): string {
     const tokens = raw
       .replace(/["*']/g, ' ')
-      .split(/\s+/)
+      .split(/[^\p{L}\p{N}]+/u)
       .map((t) => t.trim())
       .filter(Boolean)
       .slice(0, 12);
