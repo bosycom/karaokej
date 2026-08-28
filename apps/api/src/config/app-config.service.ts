@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import {
   buildLibraryPathLayout,
@@ -64,6 +64,49 @@ export class AppConfigService {
       this.config.get<string>('LRCLIB_BASE_URL')?.replace(/\/$/, '') ??
       'https://lrclib.net'
     );
+  }
+
+  get ytsaverPath(): string {
+    const raw =
+      this.config.get<string>('YTSAVER_PATH') ??
+      '/mnt/c/Program Files/YT Saver/ytsaverw.exe';
+    return isAbsolute(raw) ? raw : resolve(this.repoRoot, raw);
+  }
+
+  get ytdlpPath(): string {
+    const raw =
+      this.config.get<string>('YTDLP_PATH') ??
+      '/mnt/c/Program Files/yt-dlp/yt-dlp.exe';
+    return isAbsolute(raw) ? raw : resolve(this.repoRoot, raw);
+  }
+
+  get ffmpegPath(): string {
+    const raw =
+      this.config.get<string>('FFMPEG_PATH') ??
+      '/mnt/c/Program Files/YT Saver/ffmpeg.exe';
+    return isAbsolute(raw) ? raw : resolve(this.repoRoot, raw);
+  }
+
+  get ytdlpAudioFormat(): string {
+    return this.config.get<string>('YTDLP_AUDIO_FORMAT')?.trim() || 'mp3';
+  }
+
+  /**
+   * Node binary for yt-dlp YouTube JS challenges.
+   * Windows yt-dlp.exe cannot run the WSL Node from nvm; prefer a Windows node.exe.
+   */
+  get ytdlpNodePath(): string {
+    const raw = this.config.get<string>('YTDLP_NODE_PATH')?.trim();
+    if (raw) {
+      return isAbsolute(raw) ? raw : resolve(this.repoRoot, raw);
+    }
+    if (this.ytdlpPath.toLowerCase().endsWith('.exe')) {
+      const windowsNode = '/mnt/c/Program Files/nodejs/node.exe';
+      if (existsSync(windowsNode)) {
+        return windowsNode;
+      }
+    }
+    return process.execPath;
   }
 
   get scanChunkSize(): number {

@@ -32,6 +32,7 @@ import { PlayTrackModal } from '../components/PlayTrackModal';
 import { ProcessingText } from '../components/ProcessingText';
 import { ScanIssuesModal } from '../components/ScanIssuesModal';
 import { LyricSearchModal } from '../components/LyricSearchModal';
+import { SearchMissFallback } from '../components/SearchMissFallback';
 import { WorkspaceDnd } from '../components/WorkspaceDnd';
 import { MODAL_IDS } from '../modals/dismissedModals';
 import { useConfirmModal } from '../modals/useConfirmModal';
@@ -597,6 +598,12 @@ export function LibraryPage() {
                 <ProcessingText>{state.jobs.lyricsFetch.message}</ProcessingText>
               </>
             ) : null}
+            {state.jobs.download.running && state.jobs.download.message ? (
+              <>
+                {' · '}
+                <ProcessingText>{state.jobs.download.message}</ProcessingText>
+              </>
+            ) : null}
           </p>
           {scanJob.running ? (
             <div
@@ -661,7 +668,21 @@ export function LibraryPage() {
               </button>
             </form>
             {tracks.length === 0 ? (
-              <p className="empty">No songs match. Scan the library if it is empty.</p>
+              query.trim() ? (
+                <SearchMissFallback
+                  query={query.trim()}
+                  ytdlpAvailable={status?.ytdlpAvailable ?? false}
+                  ytsaverAvailable={status?.ytsaverAvailable ?? false}
+                  downloadRunning={state.jobs.download.running}
+                  downloadMessage={state.jobs.download.message}
+                  onTrackDownloaded={(track) => {
+                    void loadTracks(query, page, minRating, hideDuplicates);
+                    handlePlayTrack(track);
+                  }}
+                />
+              ) : (
+                <p className="empty">No songs match. Scan the library if it is empty.</p>
+              )
             ) : (
               <ul className="track-list">
                 {tracks.map((track) => (

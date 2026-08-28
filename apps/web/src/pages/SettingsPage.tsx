@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { LibraryStatusDto } from '@karaokej/shared';
 import { PlayerBar } from '../components/PlayerBar';
 import { ProcessingText } from '../components/ProcessingText';
 import {
@@ -15,6 +16,13 @@ export function SettingsPage() {
   const [dismissedIds, setDismissedIds] = useState(() => getDismissedIds());
   const [resetMessage, setResetMessage] = useState<string | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [libraryStatus, setLibraryStatus] = useState<LibraryStatusDto | null>(null);
+
+  useEffect(() => {
+    void api.libraryStatus().then(setLibraryStatus).catch(() => {
+      /* leave null */
+    });
+  }, []);
 
   const handleReset = () => {
     resetDismissedModals();
@@ -65,6 +73,20 @@ export function SettingsPage() {
             naturally. Skipped songs stay in the queue. Audio files are not deleted.
           </p>
           {settingsError && <p className="settings-feedback error">{settingsError}</p>}
+        </section>
+
+        <section className="settings-section">
+          <h2>Download helper</h2>
+          <p className="settings-copy">
+            {libraryStatus?.ytdlpAvailable
+              ? `yt-dlp found at ${libraryStatus.ytdlpPath}`
+              : `yt-dlp not found at ${libraryStatus?.ytdlpPath ?? 'the configured path'}. Set YTDLP_PATH in .env if it is installed.`}
+          </p>
+          <p className="settings-copy">
+            {libraryStatus?.ytsaverAvailable
+              ? `YT Saver found at ${libraryStatus.ytsaverPath}`
+              : `YT Saver not found at ${libraryStatus?.ytsaverPath ?? 'the configured path'}. Set YTSAVER_PATH in .env if it is installed.`}
+          </p>
         </section>
 
         <section className="settings-section">

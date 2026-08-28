@@ -12,6 +12,8 @@ import {
   TrackDto,
   TrackPageDto,
   TrackPathDto,
+  YoutubeDownloadResultDto,
+  YoutubeSearchResultDto,
 } from '@karaokej/shared';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -200,6 +202,19 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ mode }),
     }),
+  launchYtsaver: () =>
+    request<{ ok: true }>('/api/external/ytsaver/launch', { method: 'POST' }),
+  searchYoutube: (q: string) => {
+    const params = new URLSearchParams({ q });
+    return request<YoutubeSearchResultDto>(
+      `/api/external/youtube/search?${params.toString()}`,
+    );
+  },
+  downloadYoutube: (videoId: string) =>
+    request<YoutubeDownloadResultDto>('/api/external/youtube/download', {
+      method: 'POST',
+      body: JSON.stringify({ videoId }),
+    }),
 };
 
 export function wsUrl(): string {
@@ -222,6 +237,13 @@ export const emptySession: SessionStateDto = {
     scan: { kind: 'scan', running: false, current: 0, total: 0, message: null },
     lyricsFetch: {
       kind: 'lyrics',
+      running: false,
+      current: 0,
+      total: 0,
+      message: null,
+    },
+    download: {
+      kind: 'download',
       running: false,
       current: 0,
       total: 0,

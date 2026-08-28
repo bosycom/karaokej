@@ -21,6 +21,9 @@ import { SettingsController } from './settings/settings.controller';
 import { RatingService } from './rating/rating.service';
 import { PlaylistsController } from './playlists/playlists.controller';
 import { PlaylistsService } from './playlists/playlists.service';
+import { ExternalController } from './external/external.controller';
+import { YtsaverService } from './external/ytsaver.service';
+import { YtdlpService } from './external/ytdlp.service';
 
 @Module({
   imports: [
@@ -41,6 +44,7 @@ import { PlaylistsService } from './playlists/playlists.service';
     SessionController,
     SettingsController,
     PlaylistsController,
+    ExternalController,
   ],
   providers: [
     AppConfigService,
@@ -56,6 +60,8 @@ import { PlaylistsService } from './playlists/playlists.service';
     SettingsService,
     RatingService,
     PlaylistsService,
+    YtsaverService,
+    YtdlpService,
   ],
 })
 export class AppModule {}

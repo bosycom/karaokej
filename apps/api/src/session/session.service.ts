@@ -65,6 +65,7 @@ export class SessionService implements OnModuleDestroy {
       jobs: {
         scan: this.job('scan'),
         lyricsFetch: this.job('lyrics'),
+        download: this.job('download'),
       },
       settings: this.settings.get(),
     };
@@ -139,7 +140,7 @@ export class SessionService implements OnModuleDestroy {
     }
   }
 
-  private job(kind: 'scan' | 'lyrics'): JobStatusDto {
+  private job(kind: 'scan' | 'lyrics' | 'download'): JobStatusDto {
     const row = this.db.raw
       .prepare(`SELECT * FROM jobs WHERE kind = ?`)
       .get(kind) as JobRow | undefined;

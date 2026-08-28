@@ -85,7 +85,7 @@ export interface PlaybackStateDto {
 }
 
 export interface JobStatusDto {
-  kind: 'scan' | 'lyrics';
+  kind: 'scan' | 'lyrics' | 'download';
   running: boolean;
   current: number;
   total: number;
@@ -107,7 +107,29 @@ export interface LibraryStatusDto {
   scanIssues: ScanIssueDto[];
   scan: JobStatusDto;
   lyricsFetch: JobStatusDto;
+  ytsaverAvailable: boolean;
+  ytsaverPath: string;
+  ytdlpAvailable: boolean;
+  ytdlpPath: string;
 }
+
+export interface YoutubeSearchHitDto {
+  id: string;
+  title: string;
+  uploader: string | null;
+  durationMs: number | null;
+}
+
+export interface YoutubeSearchResultDto {
+  query: string;
+  hits: YoutubeSearchHitDto[];
+}
+
+export interface YoutubeDownloadResultDto {
+  track: TrackDto;
+}
+
+export { buildPlatformSearchUrls, type PlatformSearchUrls } from './search-fallback-urls';
 
 export interface RandomArtistDto {
   artist: string;
@@ -123,6 +145,7 @@ export interface SessionStateDto {
   jobs: {
     scan: JobStatusDto;
     lyricsFetch: JobStatusDto;
+    download: JobStatusDto;
   };
   settings: AppSettingsDto;
 }
