@@ -18,9 +18,27 @@ export interface TrackRow {
   lrclib_id: number | null;
   fingerprint: string | null;
   rating: number | null;
+  year: number | null;
+  genres: string | null;
+  metadata_status: 'pending' | 'ready';
   available: number;
   created_at: number;
   updated_at: number;
+}
+
+function parseGenres(raw: string | null | undefined): string[] {
+  if (!raw) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed.filter((g): g is string => typeof g === 'string');
+  } catch {
+    return [];
+  }
 }
 
 export function trackToDto(row: TrackRow): TrackDto {
@@ -37,6 +55,9 @@ export function trackToDto(row: TrackRow): TrackDto {
     lyricStatus: row.lyric_status,
     lyricSource: row.lyric_source,
     rating: row.rating,
+    year: row.year,
+    genres: parseGenres(row.genres),
+    metadataStatus: row.metadata_status ?? 'ready',
   };
 }
 

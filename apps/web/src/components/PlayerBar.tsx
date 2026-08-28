@@ -1,18 +1,23 @@
 import { useEffect, useState } from 'react';
 import { FiPause, FiPlay, FiSkipForward } from 'react-icons/fi';
+import { TrackDto } from '@karaokej/shared';
 import { api } from '../api';
 import { formatDuration, lyricBadge } from '../format';
 import { useSession, trackLabel } from '../session/SessionProvider';
+import { LyricSearchModal } from './LyricSearchModal';
+import { ProcessingText } from './ProcessingText';
 import { StarRating } from './StarRating';
 
 export function PlayerBar({ compact = false }: { compact?: boolean }) {
   const { state, positionMs, isPlayer } = useSession();
   const [scrub, setScrub] = useState<number | null>(null);
   const [fetchingLyrics, setFetchingLyrics] = useState(false);
+  const [lyricSearchTrack, setLyricSearchTrack] = useState<TrackDto | null>(null);
   const track = state.playback.currentTrack;
 
   useEffect(() => {
     setFetchingLyrics(false);
+    setLyricSearchTrack(null);
   }, [track?.id]);
 
   const duration = track?.durationMs ?? 0;
@@ -40,7 +45,10 @@ export function PlayerBar({ compact = false }: { compact?: boolean }) {
             onClick={async () => {
               setFetchingLyrics(true);
               try {
-                await api.fetchTrackLyrics(track.id);
+                const updated = await api.fetchTrackLyrics(track.id);
+                if (updated.lyricStatus === 'not_found') {
+                  setLyricSearchTrack(updated);
+                }
               } catch {
                 /* keep the previous badge if the fetch fails */
               } finally {
@@ -51,7 +59,11 @@ export function PlayerBar({ compact = false }: { compact?: boolean }) {
             aria-label={fetchLabel}
           >
             <span className="badge-idle">
-              {fetchingLyrics ? 'Fetching…' : badge.label}
+              {fetchingLyrics ? (
+                <ProcessingText>Fetching…</ProcessingText>
+              ) : (
+                badge.label
+              )}
             </span>
             {!fetchingLyrics && (
               <span className="badge-action">Fetch lyric</span>
@@ -124,6 +136,11 @@ export function PlayerBar({ compact = false }: { compact?: boolean }) {
       {!isPlayer && !compact && (
         <p className="player-hint">This window is following playback. Audio is on another device.</p>
       )}
+      <LyricSearchModal
+        open={lyricSearchTrack != null}
+        track={lyricSearchTrack}
+        onClose={() => setLyricSearchTrack(null)}
+      />
     </footer>
   );
 }

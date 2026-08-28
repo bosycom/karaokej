@@ -22,7 +22,7 @@ describe('PlaylistsService', () => {
     playlists = new PlaylistsService(db as never, queue);
     library = new LibraryService(
       db as never,
-      { libraryPath: null } as never,
+      { libraryPaths: [] } as never,
       session,
     );
     trackA = insertTrack(db, {

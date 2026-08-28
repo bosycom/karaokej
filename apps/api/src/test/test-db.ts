@@ -1,14 +1,9 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
+import { DatabaseSync } from 'node:sqlite';
 import { SCHEMA_SQL } from '../db/schema';
-
-interface Statement {
-  run(...params: unknown[]): unknown;
-  get(...params: unknown[]): unknown;
-  all(...params: unknown[]): unknown[];
-}
+import { type Statement, wrapStatement } from '../db/sqlite-statement';
 
 export class TestSqliteDb {
   constructor(private readonly db: DatabaseSync) {}
@@ -18,12 +13,7 @@ export class TestSqliteDb {
   }
 
   prepare(sql: string): Statement {
-    const stmt = this.db.prepare(sql);
-    return {
-      run: (...params: unknown[]) => stmt.run(...(params as SQLInputValue[])),
-      get: (...params: unknown[]) => stmt.get(...(params as SQLInputValue[])),
-      all: (...params: unknown[]) => stmt.all(...(params as SQLInputValue[])),
-    };
+    return wrapStatement(this.db.prepare(sql));
   }
 
   transaction<T extends unknown[], R>(fn: (...args: T) => R): (...args: T) => R {
@@ -69,8 +59,23 @@ export class TestDbService {
       this.raw.exec(`ALTER TABLE tracks ADD COLUMN available INTEGER NOT NULL DEFAULT 1`);
       this.raw.exec(`UPDATE tracks SET available = 1 WHERE available IS NULL`);
     }
+    if (!names.has('year')) {
+      this.raw.exec(`ALTER TABLE tracks ADD COLUMN year INTEGER`);
+    }
+    if (!names.has('genres')) {
+      this.raw.exec(`ALTER TABLE tracks ADD COLUMN genres TEXT`);
+    }
+    if (!names.has('metadata_status')) {
+      this.raw.exec(
+        `ALTER TABLE tracks ADD COLUMN metadata_status TEXT NOT NULL DEFAULT 'ready'`,
+      );
+      this.raw.exec(`UPDATE tracks SET metadata_status = 'ready' WHERE metadata_status IS NULL`);
+    }
     this.raw.exec(`CREATE INDEX IF NOT EXISTS idx_tracks_rating ON tracks(rating)`);
     this.raw.exec(`CREATE INDEX IF NOT EXISTS idx_tracks_available ON tracks(available)`);
+    this.raw.exec(
+      `CREATE INDEX IF NOT EXISTS idx_tracks_metadata_status ON tracks(metadata_status)`,
+    );
   }
 
   private seedSingletons(): void {
@@ -128,6 +133,7 @@ export function insertTrack(
     durationMs?: number | null;
     lyricStatus?: string;
     rating?: number | null;
+    metadataStatus?: 'pending' | 'ready';
   },
 ): number {
   const now = Date.now();
@@ -135,8 +141,8 @@ export function insertTrack(
     .prepare(
       `INSERT INTO tracks (
          relative_path, format, size_bytes, mtime_ms, title, artist, album,
-         duration_ms, lyric_status, rating, available, created_at, updated_at
-       ) VALUES (?, ?, 1000, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         duration_ms, lyric_status, rating, metadata_status, available, created_at, updated_at
+       ) VALUES (?, ?, 1000, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       patch.relativePath,
@@ -148,6 +154,7 @@ export function insertTrack(
       patch.durationMs ?? null,
       patch.lyricStatus ?? 'missing',
       patch.rating ?? null,
+      patch.metadataStatus ?? 'ready',
       patch.available ?? 1,
       now,
       now,

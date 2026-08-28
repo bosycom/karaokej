@@ -14,7 +14,7 @@ import {
 } from '@dnd-kit/core';
 import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
 import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
-import { FiMenu } from 'react-icons/fi';
+import { FiMenu, FiTrash2 } from 'react-icons/fi';
 import { PlaylistDetailDto, PlaylistItemDto, PlaylistSummaryDto, QueueItemDto, TrackDto } from '@karaokej/shared';
 import { api } from '../api';
 import {
@@ -24,7 +24,7 @@ import {
   QUEUE_DROPPABLE,
 } from '../dnd/dragIds';
 import { workspaceCollision } from '../dnd/workspaceCollision';
-import { formatDuration } from '../format';
+import { formatDuration, formatTrackSubtitle } from '../format';
 import { trackLabel } from '../session/SessionProvider';
 import { PlaylistPane } from './PlaylistPane';
 import { QueueList } from './QueueList';
@@ -43,6 +43,7 @@ interface WorkspaceDndProps {
   onDeletePlaylist: (id: number) => void;
   onRemovePlaylistItem: (itemId: number) => void;
   onPlayPlaylist: (id: number) => void;
+  onClearQueue: () => void;
   onPlaylistChanged: (detail: PlaylistDetailDto) => void;
   onPlaylistsRefresh: () => void;
 }
@@ -66,6 +67,7 @@ export function WorkspaceDnd({
   onDeletePlaylist,
   onRemovePlaylistItem,
   onPlayPlaylist,
+  onClearQueue,
   onPlaylistChanged,
   onPlaylistsRefresh,
 }: WorkspaceDndProps) {
@@ -258,6 +260,7 @@ export function WorkspaceDnd({
           items={items}
           currentQueueItemId={currentQueueItemId}
           dropActive={dropActive}
+          onClearQueue={onClearQueue}
         />
       </div>
       <DragOverlay>
@@ -281,8 +284,7 @@ export function WorkspaceDnd({
           <div className="track-overlay">
             <strong>{active.track.title}</strong>
             <span>
-              {active.track.artist ?? 'Unknown artist'}
-              {active.track.album ? ` · ${active.track.album}` : ''}
+              {formatTrackSubtitle(active.track)}
               {active.track.durationMs != null ? ` · ${formatDuration(active.track.durationMs)}` : ''}
             </span>
           </div>
@@ -296,10 +298,12 @@ function QueuePane({
   items,
   currentQueueItemId,
   dropActive,
+  onClearQueue,
 }: {
   items: QueueItemDto[];
   currentQueueItemId: number | null;
   dropActive: boolean;
+  onClearQueue: () => void;
 }) {
   const { setNodeRef } = useDroppable({ id: QUEUE_DROPPABLE });
 
@@ -308,7 +312,19 @@ function QueuePane({
       ref={setNodeRef}
       className={`queue-pane${dropActive ? ' drop-active' : ''}`}
     >
-      <h2>Queue</h2>
+      <div className="queue-pane-toolbar">
+        <h2>Queue</h2>
+        <button
+          type="button"
+          className="icon-btn"
+          title="Empty queue"
+          aria-label="Empty queue"
+          disabled={items.length === 0}
+          onClick={onClearQueue}
+        >
+          <FiTrash2 aria-hidden />
+        </button>
+      </div>
       {items.length === 0 ? (
         <p className="empty">
           {dropActive ? 'Drop to add to the queue' : 'Queue is empty. Add a song from the library.'}

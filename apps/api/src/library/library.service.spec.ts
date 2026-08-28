@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { NotFoundException } from '@nestjs/common';
 import { LibraryService } from './library.service';
 import { createMockSession } from '../test/mock-session';
 import { createTestDb, insertTrack, TestDbService } from '../test/test-db';
@@ -12,7 +13,7 @@ describe('LibraryService.search', () => {
     ({ db, cleanup } = createTestDb());
     library = new LibraryService(
       db as never,
-      { libraryPath: null } as never,
+      { libraryPaths: [] } as never,
       createMockSession(db),
     );
   });
@@ -137,5 +138,93 @@ describe('LibraryService.search', () => {
     const page = library.search('', 1, 50, undefined, true);
     expect(page.total).toBe(2);
     expect(page.items).toHaveLength(2);
+  });
+
+  it('returns tracks with oversized duration_ms without throwing', () => {
+    db.raw.exec(`
+      INSERT INTO tracks (
+        relative_path, format, size_bytes, mtime_ms, title, artist, album,
+        duration_ms, lyric_status, metadata_status, available, created_at, updated_at
+      ) VALUES (
+        'bad/opus.opus', 'opus', 1000, 1, 'Bad Duration', 'The Doors', NULL,
+        384307168202282304, 'missing', 'ready', 1, 1, 1
+      )
+    `);
+    const page = library.search('Doors', 1, 50);
+    expect(page.total).toBe(1);
+    expect(page.items).toHaveLength(1);
+    expect(page.items[0]!.title).toBe('Bad Duration');
+    expect(page.items[0]!.durationMs).toBeNull();
+  });
+});
+
+describe('LibraryService.getRandomArtist', () => {
+  let db: TestDbService;
+  let cleanup: () => void;
+  let library: LibraryService;
+
+  beforeEach(() => {
+    ({ db, cleanup } = createTestDb());
+    library = new LibraryService(
+      db as never,
+      { libraryPaths: [] } as never,
+      createMockSession(db),
+    );
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('throws when the catalogue has no artist names', () => {
+    expect(() => library.getRandomArtist()).toThrow(NotFoundException);
+  });
+
+  it('returns one of the distinct artist names', () => {
+    insertTrack(db, {
+      relativePath: 'a/song.mp3',
+      title: 'Song A',
+      artist: 'Alpha',
+    });
+    insertTrack(db, {
+      relativePath: 'b/song.mp3',
+      title: 'Song B',
+      artist: 'Beta',
+    });
+    insertTrack(db, {
+      relativePath: 'c/song.mp3',
+      title: 'Song C',
+      artist: 'Alpha',
+    });
+
+    const result = library.getRandomArtist();
+    expect(['Alpha', 'Beta']).toContain(result.artist);
+  });
+
+  it('returns a different artist when exclude is provided and another exists', () => {
+    insertTrack(db, {
+      relativePath: 'a/song.mp3',
+      title: 'Song A',
+      artist: 'Alpha',
+    });
+    insertTrack(db, {
+      relativePath: 'b/song.mp3',
+      title: 'Song B',
+      artist: 'Beta',
+    });
+
+    const result = library.getRandomArtist('Alpha');
+    expect(result.artist).toBe('Beta');
+  });
+
+  it('returns the only artist when exclude matches the sole name', () => {
+    insertTrack(db, {
+      relativePath: 'a/song.mp3',
+      title: 'Song A',
+      artist: 'Solo Artist',
+    });
+
+    const result = library.getRandomArtist('Solo Artist');
+    expect(result.artist).toBe('Solo Artist');
   });
 });

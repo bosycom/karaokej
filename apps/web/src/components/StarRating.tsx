@@ -34,8 +34,8 @@ export function StarRating({
   const [pending, setPending] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const displayed = hover ?? pending ?? saved;
   const dirty = pending != null && pending !== saved;
+  const displayed = dirty ? (pending ?? saved) : (hover ?? pending ?? saved);
 
   useEffect(() => {
     setPending(null);

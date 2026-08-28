@@ -1,9 +1,10 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { existsSync } from 'node:fs';
-import { basename, extname } from 'node:path';
+import { access, constants } from 'node:fs/promises';
 import {
   JobStatusDto,
   LibraryStatusDto,
+  RandomArtistDto,
+  ScanIssueDto,
   TrackPageDto,
   TrackPathDto,
 } from '@karaokej/shared';
@@ -12,31 +13,59 @@ import { DbService } from '../db/db.service';
 import { JobRow, TrackRow, trackToDto } from '../db/types';
 import { SessionService } from '../session/session.service';
 import {
-  fallbackMetadata,
+  estimateScanRate,
+  formatPhase1ScanMessage,
+  formatPhase2ScanMessage,
+  formatScanCompleteMessage,
   lyricPathFor,
   makeFingerprint,
-  walkAudioFiles,
   yieldEventLoop,
 } from './fs-utils';
-import { ratingFromMetadata, readRatingFromFile } from '../rating/rating-tags';
+import { sanitizeDurationMs } from './duration-utils';
 import {
-  detectRootChange,
-  hasPathRebaseConflicts,
-  planPathRebase,
-} from './scan-root';
+  planMultiRootRebase,
+  parseStoredScanRoots,
+  serializeStoredScanRoots,
+} from './library-rebase';
+import {
+  cataloguePathBelongsToRoot,
+  prefixCataloguePath,
+  stripCataloguePath,
+} from './library-paths';
+import {
+  LIBRARY_LAST_FULL_SCAN_AT_KEY,
+  LIBRARY_SCAN_CHECKPOINT_KEY,
+  LIBRARY_SCAN_ISSUES_KEY,
+  MAX_SCAN_ISSUES,
+  checkpointMatchesRoots,
+  displayScanPath,
+  parseScanCheckpoint,
+  parseScanIssues,
+  seedSeenFromCompletedGroups,
+  type ScanCheckpoint,
+} from './scan-checkpoint';
+import { ScanWorkerHost } from './scan-worker-host';
+import type { ScanChunkItem } from './scan-ipc';
+import {
+  mapWithConcurrency,
+  readTrackMetadata,
+  resolveDurationForTrack,
+} from './scan-metadata';
+import { upsertPathTrack, upsertTagsTrack } from './scan-track-upsert';
 
 const LIBRARY_SCAN_ROOT_KEY = 'library_scan_root';
 
 const TRACK_SELECT_COLUMNS = `
   id, relative_path, format, size_bytes, mtime_ms, title, artist, album, album_artist,
   track_no, duration_ms, lyric_status, lyric_source, lyric_checked_at, lrclib_id,
-  fingerprint, rating, available, created_at, updated_at
+  fingerprint, rating, year, genres, metadata_status, available, created_at, updated_at
 `;
 
 const DEDUPE_PARTITION = `
-  LOWER(TRIM(COALESCE(artist, ''))),
-  LOWER(TRIM(title)),
-  CAST(COALESCE(duration_ms, -1) / 2000 AS INTEGER)
+  CASE
+    WHEN metadata_status = 'pending' THEN 'pending:' || relative_path
+    ELSE 'ready:' || LOWER(TRIM(COALESCE(artist, ''))) || '|' || LOWER(TRIM(title)) || '|' || CAST(COALESCE(duration_ms, -1) / 2000 AS INTEGER)
+  END
 `;
 
 const DEDUPE_KEEP_ORDER = `
@@ -49,6 +78,8 @@ export class LibraryService {
   private readonly logger = new Logger(LibraryService.name);
   private scanRunning = false;
   private scanCancelRequested = false;
+  private readonly scanWorkerHost = new ScanWorkerHost();
+  private readonly durationBackfillInFlight = new Set<number>();
 
   constructor(
     private readonly db: DbService,
@@ -68,8 +99,10 @@ export class LibraryService {
     return {
       trackCount: trackCount.n,
       withLyrics: withLyrics.n,
-      libraryPath: this.config.libraryPath,
-      libraryConfigured: Boolean(this.config.libraryPath),
+      libraryPaths: this.config.libraryPaths,
+      libraryConfigured: this.config.libraryPaths.length > 0,
+      lastFullScanAt: this.getLastFullScanAt(),
+      scanIssues: this.getScanIssues(),
       scan: this.jobStatus('scan'),
       lyricsFetch: this.jobStatus('lyrics'),
     };
@@ -119,6 +152,38 @@ export class LibraryService {
       .get(id) as TrackRow | undefined;
   }
 
+  getRandomArtist(exclude?: string): RandomArtistDto {
+    const trimmedExclude = exclude?.trim() || null;
+    const artist = this.pickRandomArtist(trimmedExclude);
+    if (artist) {
+      return { artist };
+    }
+    if (trimmedExclude) {
+      const fallback = this.pickRandomArtist(null);
+      if (fallback) {
+        return { artist: fallback };
+      }
+    }
+    throw new NotFoundException('No artists found in library');
+  }
+
+  private pickRandomArtist(exclude: string | null): string | null {
+    const row = this.db.raw
+      .prepare(
+        `SELECT artist
+         FROM tracks
+         WHERE available = 1
+           AND artist IS NOT NULL
+           AND TRIM(artist) != ''
+           AND (? IS NULL OR LOWER(TRIM(artist)) != LOWER(?))
+         GROUP BY LOWER(TRIM(artist))
+         ORDER BY RANDOM()
+         LIMIT 1`,
+      )
+      .get(exclude, exclude) as { artist: string } | undefined;
+    return row?.artist ?? null;
+  }
+
   getTrackPath(id: number): TrackPathDto {
     const track = this.getTrack(id);
     if (!track) {
@@ -129,6 +194,54 @@ export class LibraryService {
       throw new BadRequestException('Track path is unavailable');
     }
     return { path: absolute };
+  }
+
+  backfillDurationIfMissing(trackId: number): void {
+    const track = this.getTrack(trackId);
+    if (!track || track.duration_ms != null) {
+      return;
+    }
+    if (this.durationBackfillInFlight.has(trackId)) {
+      return;
+    }
+    const absolute = this.config.resolveUnderLibrary(track.relative_path);
+    if (!absolute) {
+      return;
+    }
+
+    this.durationBackfillInFlight.add(trackId);
+    void resolveDurationForTrack(
+      absolute,
+      track.relative_path,
+      this.config.scanFsTimeoutMs,
+    )
+      .then((durationMs) => {
+        const safeDuration = sanitizeDurationMs(durationMs);
+        if (safeDuration == null) {
+          return;
+        }
+        const fingerprint = makeFingerprint(
+          track.artist,
+          track.title,
+          track.size_bytes,
+          safeDuration,
+        );
+        const now = Date.now();
+        this.db.raw
+          .prepare(
+            `UPDATE tracks SET duration_ms = ?, fingerprint = ?, updated_at = ? WHERE id = ? AND duration_ms IS NULL`,
+          )
+          .run(safeDuration, fingerprint, now, trackId);
+        this.session.broadcast();
+      })
+      .catch((err) => {
+        this.logger.warn(
+          `Duration backfill failed for track ${trackId}: ${err instanceof Error ? err.message : err}`,
+        );
+      })
+      .finally(() => {
+        this.durationBackfillInFlight.delete(trackId);
+      });
   }
 
   search(
@@ -297,7 +410,7 @@ export class LibraryService {
   }
 
   async startScan(): Promise<void> {
-    if (!this.config.libraryPath) {
+    if (this.config.libraryPaths.length === 0) {
       throw new BadRequestException(
         'MUSIC_LIBRARY_PATH is not configured. Set it in .env and restart.',
       );
@@ -317,18 +430,23 @@ export class LibraryService {
       return;
     }
     this.scanCancelRequested = true;
+    this.scanWorkerHost.cancel();
   }
 
   private async runScan(): Promise<void> {
-    const root = this.config.libraryPath!;
+    const layout = this.config.libraryLayout;
+    const roots = layout.roots;
+    const progressEstimate = this.getProgressEstimate();
     this.setJob('scan', {
       running: true,
       current: 0,
-      total: 0,
-      message: 'Walking library…',
+      total: progressEstimate,
+      message: 'Preparing library scan…',
     });
+    const walkErrors: ScanIssueDto[] = [];
+    this.saveScanIssues([]);
     try {
-      this.maybeRebaseCataloguePaths(root);
+      await this.maybeRebaseCataloguePaths(roots);
       if (this.scanCancelRequested) {
         this.setJob('scan', {
           running: false,
@@ -336,20 +454,6 @@ export class LibraryService {
         });
         return;
       }
-      const files = await walkAudioFiles(root, () => this.scanCancelRequested);
-      if (this.scanCancelRequested) {
-        this.setJob('scan', {
-          running: false,
-          message: 'Scan cancelled',
-        });
-        return;
-      }
-      this.setJob('scan', {
-        running: true,
-        current: 0,
-        total: files.length,
-        message: `Found ${files.length} audio files`,
-      });
 
       const existing = this.db.raw
         .prepare(`SELECT id, relative_path, size_bytes, mtime_ms FROM tracks`)
@@ -359,45 +463,103 @@ export class LibraryService {
         size_bytes: number;
         mtime_ms: number;
       }>;
-      const byPath = new Map(existing.map((row) => [row.relative_path, row]));
-      const seen = new Set<string>();
+      const existingByPath = new Map(
+        existing.map((row) => [row.relative_path, row]),
+      );
+      const cataloguePaths = existing.map((row) => row.relative_path);
 
-      let processed = 0;
-      for (const file of files) {
+      const checkpoint = this.loadCheckpoint(roots);
+      const startRootIndex = checkpoint?.rootIndex ?? 0;
+      const seen = new Set<string>();
+      for (let index = 0; index < startRootIndex; index += 1) {
+        const root = roots[index]!;
+        const key = layout.keys.get(root)!;
+        for (const path of cataloguePaths) {
+          if (cataloguePathBelongsToRoot(path, key, layout.multiRoot)) {
+            seen.add(path);
+          }
+        }
+      }
+
+      let processed = seen.size;
+      let sessionProcessed = 0;
+      const startedAt = Date.now();
+      let skippedDirs = 0;
+      let durationFallbackTotal = 0;
+
+      for (let rootIndex = startRootIndex; rootIndex < roots.length; rootIndex += 1) {
+        const root = roots[rootIndex]!;
+        const key = layout.keys.get(root)!;
+        const rootCheckpoint =
+          rootIndex === startRootIndex ? checkpoint : null;
+        const completedGroups = rootCheckpoint?.completedGroups ?? [];
+        const rootCataloguePaths = cataloguePaths.filter((path) =>
+          cataloguePathBelongsToRoot(path, key, layout.multiRoot),
+        );
+        for (const path of seedSeenFromCompletedGroups(
+          completedGroups,
+          rootCataloguePaths.map((path) =>
+            layout.multiRoot ? stripCataloguePath(key, path) ?? path : path,
+          ),
+        )) {
+          seen.add(
+            prefixCataloguePath(key, path, layout.multiRoot),
+          );
+        }
+        processed = seen.size;
+
+        const result = await this.scanSingleRoot({
+          root,
+          key,
+          multiRoot: layout.multiRoot,
+          roots,
+          rootIndex,
+          existing,
+          existingByPath,
+          completedGroups,
+          seen,
+          progressEstimate,
+          sessionProcessed,
+          startedAt,
+          skippedDirs,
+          durationFallbackTotal,
+          walkErrors,
+          onSessionProcessed: (count) => {
+            sessionProcessed += count;
+          },
+          onSkippedDirs: (count) => {
+            skippedDirs = count;
+          },
+          onDurationFallback: (count) => {
+            durationFallbackTotal = count;
+          },
+          onProcessed: (count) => {
+            processed = count;
+          },
+        });
+
+        sessionProcessed = result.sessionProcessed;
+        skippedDirs = result.skippedDirs;
+        durationFallbackTotal = result.durationFallbackTotal;
+        processed = result.processed;
+
         if (this.scanCancelRequested) {
           this.setJob('scan', {
             running: false,
             current: processed,
-            total: files.length,
+            total: processed,
             message: 'Scan cancelled',
           });
           return;
         }
-        seen.add(file.relativePath);
-        const prev = byPath.get(file.relativePath);
-        const changed =
-          !prev ||
-          prev.size_bytes !== file.sizeBytes ||
-          prev.mtime_ms !== file.mtimeMs;
+      }
 
-        if (changed) {
-          await this.upsertFile(file);
-        } else {
-          this.markAvailable(file.relativePath);
-          this.refreshLyricPresence(file.relativePath, file.absolutePath);
-          await this.refreshRatingCache(file.relativePath, file.absolutePath);
-        }
+      this.saveScanIssues(walkErrors);
 
-        processed += 1;
-        if (processed % 25 === 0) {
-          this.setJob('scan', {
-            running: true,
-            current: processed,
-            total: files.length,
-            message: `Indexing ${processed} / ${files.length}`,
-          });
-          await yieldEventLoop();
-        }
+      if (durationFallbackTotal > 0) {
+        this.logger.log(
+          `Scan used full-file duration decode for ${durationFallbackTotal.toLocaleString()} tracks (set LIBRARY_SCAN_DURATION_MODE=header_only on network libraries)`,
+        );
       }
 
       const staleIds = existing
@@ -407,21 +569,470 @@ export class LibraryService {
         this.markTracksUnavailable(staleIds);
       }
 
-      this.setStoredScanRoot(root);
+      await this.runPhase2Metadata(walkErrors);
+
+      if (this.scanCancelRequested) {
+        this.setJob('scan', {
+          running: false,
+          current: processed,
+          total: processed,
+          message: 'Scan cancelled',
+        });
+        return;
+      }
+
+      this.setStoredScanRoots(roots);
+      this.clearCheckpoint();
+      this.setLastFullScanAt(Date.now());
 
       this.setJob('scan', {
         running: false,
-        current: files.length,
-        total: files.length,
-        message: `Indexed ${files.length} tracks`,
+        current: processed,
+        total: processed,
+        message: formatScanCompleteMessage(
+          processed,
+          skippedDirs + walkErrors.length,
+        ),
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.error(`Scan failed: ${message}`);
+      this.saveScanIssues(walkErrors);
       this.setJob('scan', {
         running: false,
         message: `Scan failed: ${message}`,
       });
+    } finally {
+      await this.scanWorkerHost.terminate();
+    }
+  }
+
+  private async scanSingleRoot(options: {
+    root: string;
+    key: string;
+    multiRoot: boolean;
+    roots: string[];
+    rootIndex: number;
+    existing: Array<{
+      id: number;
+      relative_path: string;
+      size_bytes: number;
+      mtime_ms: number;
+    }>;
+    existingByPath: Map<
+      string,
+      { id: number; relative_path: string; size_bytes: number; mtime_ms: number }
+    >;
+    completedGroups: string[];
+    seen: Set<string>;
+    progressEstimate: number;
+    sessionProcessed: number;
+    startedAt: number;
+    skippedDirs: number;
+    durationFallbackTotal: number;
+    walkErrors: ScanIssueDto[];
+    onSessionProcessed: (count: number) => void;
+    onSkippedDirs: (count: number) => void;
+    onDurationFallback: (count: number) => void;
+    onProcessed: (count: number) => void;
+  }): Promise<{
+    sessionProcessed: number;
+    skippedDirs: number;
+    durationFallbackTotal: number;
+    processed: number;
+  }> {
+    const {
+      root,
+      key,
+      multiRoot,
+      roots,
+      rootIndex,
+      existingByPath,
+      completedGroups,
+      seen,
+      progressEstimate,
+      walkErrors,
+    } = options;
+    let { sessionProcessed, skippedDirs, durationFallbackTotal } = options;
+    let processed = seen.size;
+    let currentFolder: {
+      label: string;
+      index: number;
+      total: number;
+      resuming?: boolean;
+    } | null = null;
+
+    const walkerExistingByPath = new Map<
+      string,
+      { size_bytes: number; mtime_ms: number }
+    >();
+    for (const [path, row] of existingByPath) {
+      const stripped = multiRoot ? stripCataloguePath(key, path) : path;
+      if (stripped == null) {
+        continue;
+      }
+      walkerExistingByPath.set(stripped, {
+        size_bytes: row.size_bytes,
+        mtime_ms: row.mtime_ms,
+      });
+    }
+
+    const walkerDirMtimes: Record<string, number> = {};
+    for (const [path, mtimeMs] of Object.entries(this.getDirMtimes())) {
+      const stripped = multiRoot ? stripCataloguePath(key, path) : path;
+      if (stripped != null) {
+        walkerDirMtimes[stripped] = mtimeMs;
+      }
+    }
+
+    const prefixLabel = (label: string): string =>
+      multiRoot ? `${key} / ${label}` : label;
+
+    const currentRate = () =>
+      estimateScanRate(sessionProcessed, Date.now() - options.startedAt);
+    const updateScanProgress = () => {
+      const skippedCount = skippedDirs + walkErrors.length;
+      const filesPerSecond = currentRate();
+      const message = formatPhase1ScanMessage(
+        currentFolder,
+        processed,
+        skippedCount,
+        filesPerSecond,
+      );
+      this.setJob('scan', {
+        running: true,
+        current: processed,
+        total: progressEstimate,
+        message,
+      });
+    };
+
+    const payload = {
+      root,
+      chunkSize: this.config.scanChunkSize,
+      metadataConcurrency: this.config.scanMetadataConcurrency,
+      walkConcurrency: this.config.scanWalkConcurrency,
+      fsTimeoutMs: this.config.scanFsTimeoutMs,
+      skipLrcOnUnchanged: this.config.scanSkipLrcOnUnchanged,
+      skipUnchangedDirs: this.config.scanSkipUnchangedDirs,
+      durationMode: this.config.scanDurationMode,
+      completedGroups,
+      existingByPath: Object.fromEntries(walkerExistingByPath.entries()),
+      dirMtimes: walkerDirMtimes,
+    };
+
+    await this.scanWorkerHost.run({
+      payload,
+      shouldCancel: () => this.scanCancelRequested,
+      onMessage: async (message) => {
+        if (message.type === 'progress') {
+          currentFolder = {
+            label: prefixLabel(message.folder.label),
+            index: message.folder.index,
+            total: message.folder.total,
+            resuming: message.folder.resuming,
+          };
+          updateScanProgress();
+          return;
+        }
+
+        if (message.type === 'walkError') {
+          const issue: ScanIssueDto = {
+            path: displayScanPath(root, message.error.path),
+            op: message.error.op,
+            message: message.error.message,
+          };
+          walkErrors.push(issue);
+          if (walkErrors.length <= 5) {
+            this.logger.warn(
+              `Scan skipped ${issue.op} on ${issue.path}: ${issue.message}`,
+            );
+          }
+          updateScanProgress();
+          return;
+        }
+
+        if (message.type === 'dirStat') {
+          this.setDirMtime(
+            prefixCataloguePath(key, message.relativePath, multiRoot),
+            message.mtimeMs,
+          );
+          return;
+        }
+
+        if (message.type === 'dirSkipped') {
+          skippedDirs += 1;
+          for (const path of message.seenPaths) {
+            const cataloguePath = prefixCataloguePath(key, path, multiRoot);
+            seen.add(cataloguePath);
+            this.markAvailable(cataloguePath);
+          }
+          processed = seen.size;
+          const nextCompleted = [
+            ...(this.loadCheckpoint(roots)?.completedGroups ?? completedGroups),
+          ];
+          if (!nextCompleted.includes(message.groupId)) {
+            nextCompleted.push(message.groupId);
+          }
+          this.saveCheckpoint({
+            roots,
+            rootIndex,
+            completedGroups: nextCompleted,
+          });
+          updateScanProgress();
+          return;
+        }
+
+        if (message.type === 'chunk') {
+          const prefixedItems = message.items.map((item) => ({
+            ...item,
+            relativePath: prefixCataloguePath(
+              key,
+              item.relativePath,
+              multiRoot,
+            ),
+          }));
+
+          for (const item of prefixedItems) {
+            if (this.scanCancelRequested) {
+              return;
+            }
+            seen.add(item.relativePath);
+          }
+
+          if (prefixedItems.length > 0) {
+            this.processScanChunkBatch(prefixedItems);
+            sessionProcessed += prefixedItems.length;
+            processed = seen.size;
+            durationFallbackTotal += message.stats.durationFallback;
+            options.onSessionProcessed(sessionProcessed);
+            options.onDurationFallback(durationFallbackTotal);
+            if (message.stats.durationFallback > 0) {
+              this.logger.log(
+                `Scan chunk ${message.groupId}: ${message.stats.parsed} parsed, ${message.stats.unchanged} unchanged, ${message.stats.durationFallback} full duration decode`,
+              );
+            } else if (message.stats.parsed > 0) {
+              this.logger.debug(
+                `Scan chunk ${message.groupId}: ${message.stats.parsed} parsed, ${message.stats.unchanged} unchanged`,
+              );
+            }
+          }
+
+          if (message.folderComplete) {
+            const nextCompleted = [
+              ...(this.loadCheckpoint(roots)?.completedGroups ?? completedGroups),
+            ];
+            if (!nextCompleted.includes(message.groupId)) {
+              nextCompleted.push(message.groupId);
+            }
+            this.saveCheckpoint({
+              roots,
+              rootIndex,
+              completedGroups: nextCompleted,
+            });
+          }
+
+          options.onProcessed(processed);
+          updateScanProgress();
+          await yieldEventLoop();
+        }
+
+        if (message.type === 'done') {
+          processed = seen.size;
+          skippedDirs = message.skippedDirs;
+          options.onSkippedDirs(skippedDirs);
+          options.onProcessed(processed);
+        }
+      },
+    });
+
+    return {
+      sessionProcessed,
+      skippedDirs,
+      durationFallbackTotal,
+      processed,
+    };
+  }
+
+  private processScanChunkBatch(items: ScanChunkItem[]): void {
+    const now = Date.now();
+    const tx = this.db.raw.transaction((batch: ScanChunkItem[]) => {
+      for (const item of batch) {
+        if (item.unchanged) {
+          this.markAvailableInTx(item.relativePath, now);
+          if (item.hasLrc != null) {
+            this.refreshLyricPresenceFromFlagInTx(
+              item.relativePath,
+              item.hasLrc,
+              now,
+            );
+          }
+          continue;
+        }
+
+        this.upsertPathTrackInTx(item, now);
+        this.markAvailableInTx(item.relativePath, now);
+        if (item.hasLrc != null) {
+          this.refreshLyricPresenceFromFlagInTx(
+            item.relativePath,
+            item.hasLrc,
+            now,
+          );
+        }
+      }
+    });
+    tx(items);
+  }
+
+  private markAvailableInTx(relativePath: string, now: number): void {
+    this.db.raw
+      .prepare(
+        `UPDATE tracks SET available = 1, updated_at = ? WHERE relative_path = ? AND available = 0`,
+      )
+      .run(now, relativePath);
+  }
+
+  private refreshLyricPresenceFromFlagInTx(
+    relativePath: string,
+    hasLrc: boolean,
+    now: number,
+  ): void {
+    const row = this.db.raw
+      .prepare(`SELECT id, lyric_status FROM tracks WHERE relative_path = ?`)
+      .get(relativePath) as { id: number; lyric_status: string } | undefined;
+    if (!row) {
+      return;
+    }
+    if (hasLrc && row.lyric_status !== 'present') {
+      this.db.raw
+        .prepare(
+          `UPDATE tracks SET lyric_status = 'present', lyric_source = COALESCE(lyric_source, 'local'), updated_at = ? WHERE id = ?`,
+        )
+        .run(now, row.id);
+    } else if (!hasLrc && row.lyric_status === 'present') {
+      this.db.raw
+        .prepare(
+          `UPDATE tracks SET lyric_status = 'missing', lyric_source = NULL, updated_at = ? WHERE id = ?`,
+        )
+        .run(now, row.id);
+    }
+  }
+
+  private upsertPathTrackInTx(item: ScanChunkItem, now: number): void {
+    upsertPathTrack(this.db.raw, item, now);
+  }
+
+  private upsertTagsTrackInTx(
+    item: ScanChunkItem,
+    parsed: NonNullable<ScanChunkItem['metadata']>,
+    now: number,
+  ): void {
+    upsertTagsTrack(this.db.raw, item, parsed, now);
+  }
+
+  private async runPhase2Metadata(walkErrors: ScanIssueDto[]): Promise<void> {
+    const pending = this.db.raw
+      .prepare(
+        `SELECT relative_path, format, size_bytes, mtime_ms
+         FROM tracks
+         WHERE metadata_status = 'pending' AND available = 1
+         ORDER BY relative_path`,
+      )
+      .all() as Array<{
+      relative_path: string;
+      format: ScanChunkItem['format'];
+      size_bytes: number;
+      mtime_ms: number;
+    }>;
+
+    if (pending.length === 0) {
+      return;
+    }
+
+    let completed = 0;
+    let phase2DurationFallback = 0;
+    const total = pending.length;
+    const startedAt = Date.now();
+    const batchSize = Math.max(50, Math.min(this.config.scanChunkSize, 500));
+    const concurrency = this.config.scanMetadataConcurrency;
+    const fsTimeoutMs = this.config.scanFsTimeoutMs;
+    const durationMode = this.config.scanDurationMode;
+
+    const updatePhase2Progress = () => {
+      const rate = estimateScanRate(completed, Date.now() - startedAt);
+      this.setJob('scan', {
+        running: true,
+        current: completed,
+        total,
+        message: formatPhase2ScanMessage(completed, total, rate),
+      });
+    };
+
+    updatePhase2Progress();
+
+    for (let offset = 0; offset < pending.length; offset += batchSize) {
+      if (this.scanCancelRequested) {
+        return;
+      }
+
+      const batch = pending.slice(offset, offset + batchSize);
+      const batchResults = await mapWithConcurrency(batch, concurrency, async (row) => {
+        if (this.scanCancelRequested) {
+          return { usedFallback: false };
+        }
+        const absolute = this.config.resolveUnderLibrary(row.relative_path);
+        if (!absolute) {
+          return { usedFallback: false };
+        }
+
+        let hasLrc = false;
+        try {
+          await access(lyricPathFor(absolute), constants.F_OK);
+          hasLrc = true;
+        } catch {
+          hasLrc = false;
+        }
+
+        try {
+          const result = await readTrackMetadata(absolute, row.relative_path, {
+            fsTimeoutMs,
+            durationMode,
+          });
+          const now = Date.now();
+          const item: ScanChunkItem = {
+            absolutePath: absolute,
+            relativePath: row.relative_path,
+            sizeBytes: row.size_bytes,
+            mtimeMs: row.mtime_ms,
+            format: row.format,
+            unchanged: false,
+            hasLrc,
+            metadata: result.metadata,
+          };
+          this.upsertTagsTrackInTx(item, result.metadata, now);
+          return { usedFallback: result.usedDurationFallback };
+        } catch (err) {
+          walkErrors.push({
+            path: row.relative_path,
+            op: 'parse',
+            message: err instanceof Error ? err.message : String(err),
+          });
+          return { usedFallback: false };
+        }
+      });
+
+      phase2DurationFallback += batchResults.filter((r) => r.usedFallback).length;
+
+      completed += batch.length;
+      updatePhase2Progress();
+      this.session.broadcast();
+      await yieldEventLoop();
+    }
+
+    if (phase2DurationFallback > 0) {
+      this.logger.log(
+        `Tag phase used full-file duration decode for ${phase2DurationFallback.toLocaleString()} tracks`,
+      );
     }
   }
 
@@ -472,253 +1083,124 @@ export class LibraryService {
     this.session.broadcast();
   }
 
-  private refreshLyricPresence(relativePath: string, absolutePath: string): void {
-    const hasLrc = existsSync(lyricPathFor(absolutePath));
-    const row = this.db.raw
-      .prepare(`SELECT id, lyric_status FROM tracks WHERE relative_path = ?`)
-      .get(relativePath) as { id: number; lyric_status: string } | undefined;
-    if (!row) {
-      return;
-    }
-    if (hasLrc && row.lyric_status !== 'present') {
-      this.db.raw
-        .prepare(
-          `UPDATE tracks SET lyric_status = 'present', lyric_source = COALESCE(lyric_source, 'local'), updated_at = ? WHERE id = ?`,
-        )
-        .run(Date.now(), row.id);
-    } else if (!hasLrc && row.lyric_status === 'present') {
-      this.db.raw
-        .prepare(
-          `UPDATE tracks SET lyric_status = 'missing', lyric_source = NULL, updated_at = ? WHERE id = ?`,
-        )
-        .run(Date.now(), row.id);
-    }
-  }
-
-  private async upsertFile(file: {
-    absolutePath: string;
-    relativePath: string;
-    sizeBytes: number;
-    mtimeMs: number;
-    format: string;
-  }): Promise<void> {
-    const now = Date.now();
-    const parsed = await this.readMetadata(file.absolutePath, file.relativePath);
-    const fingerprint = makeFingerprint(
-      parsed.artist,
-      parsed.title,
-      file.sizeBytes,
-      parsed.durationMs,
-    );
-    const hasLrc = existsSync(lyricPathFor(file.absolutePath));
-    const memory = this.db.raw
-      .prepare(`SELECT * FROM lyric_memory WHERE fingerprint = ?`)
-      .get(fingerprint) as
-      | {
-          lyric_status: string;
-          lyric_source: string | null;
-          lyric_checked_at: number | null;
-          lrclib_id: number | null;
-        }
-      | undefined;
-
-    let lyricStatus = hasLrc ? 'present' : 'missing';
-    let lyricSource: string | null = hasLrc ? 'local' : null;
-    let lyricCheckedAt: number | null = null;
-    let lrclibId: number | null = null;
-    if (!hasLrc && memory) {
-      lyricStatus = memory.lyric_status === 'present' ? 'missing' : memory.lyric_status;
-      lyricSource = memory.lyric_source;
-      lyricCheckedAt = memory.lyric_checked_at;
-      lrclibId = memory.lrclib_id;
-    }
-
-    this.db.raw
-      .prepare(
-        `INSERT INTO tracks (
-           relative_path, format, size_bytes, mtime_ms, title, artist, album, album_artist,
-           track_no, duration_ms, lyric_status, lyric_source, lyric_checked_at, lrclib_id,
-           fingerprint, rating, available, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-         ON CONFLICT(relative_path) DO UPDATE SET
-           format = excluded.format,
-           size_bytes = excluded.size_bytes,
-           mtime_ms = excluded.mtime_ms,
-           title = excluded.title,
-           artist = excluded.artist,
-           album = excluded.album,
-           album_artist = excluded.album_artist,
-           track_no = excluded.track_no,
-           duration_ms = excluded.duration_ms,
-           lyric_status = excluded.lyric_status,
-           lyric_source = excluded.lyric_source,
-           lyric_checked_at = excluded.lyric_checked_at,
-           lrclib_id = excluded.lrclib_id,
-           fingerprint = excluded.fingerprint,
-           rating = excluded.rating,
-           available = 1,
-           updated_at = excluded.updated_at`,
-      )
-      .run(
-        file.relativePath,
-        file.format,
-        file.sizeBytes,
-        file.mtimeMs,
-        parsed.title,
-        parsed.artist,
-        parsed.album,
-        parsed.albumArtist,
-        parsed.trackNo,
-        parsed.durationMs,
-        lyricStatus,
-        lyricSource,
-        lyricCheckedAt,
-        lrclibId,
-        fingerprint,
-        parsed.rating,
-        now,
-        now,
-      );
-  }
-
-  private async readMetadata(
-    absolutePath: string,
-    relativePath: string,
-  ): Promise<{
-    title: string;
-    artist: string | null;
-    album: string | null;
-    albumArtist: string | null;
-    trackNo: number | null;
-    durationMs: number | null;
-    rating: number;
-  }> {
-    const stem = basename(absolutePath, extname(absolutePath));
-    const fallback = fallbackMetadata(relativePath, stem);
-    try {
-      const { parseFile } = await import('music-metadata');
-      const meta = await parseFile(absolutePath, { duration: true, skipCovers: true });
-      const common = meta.common;
-      const title = common.title?.trim() || fallback.title;
-      const artist =
-        common.artist?.trim() ||
-        common.albumartist?.trim() ||
-        fallback.artist;
-      const album = common.album?.trim() || fallback.album;
-      const albumArtist = common.albumartist?.trim() || null;
-      const trackNo = common.track?.no ?? null;
-      const durationMs = meta.format.duration
-        ? Math.round(meta.format.duration * 1000)
-        : null;
-      return {
-        title,
-        artist,
-        album,
-        albumArtist,
-        trackNo,
-        durationMs,
-        rating: ratingFromMetadata(meta),
-      };
-    } catch (err) {
-      this.logger.warn(
-        `Metadata read failed for ${relativePath}: ${err instanceof Error ? err.message : err}`,
-      );
-      return {
-        ...fallback,
-        albumArtist: null,
-        trackNo: null,
-        durationMs: null,
-        rating: 0,
-      };
-    }
-  }
-
-  private async refreshRatingCache(
-    relativePath: string,
-    absolutePath: string,
-  ): Promise<void> {
-    try {
-      const rating = await readRatingFromFile(absolutePath);
-      const row = this.db.raw
-        .prepare(`SELECT rating FROM tracks WHERE relative_path = ?`)
-        .get(relativePath) as { rating: number | null } | undefined;
-      if (!row || row.rating === rating) {
-        return;
-      }
-      this.db.raw
-        .prepare(
-          `UPDATE tracks SET rating = ?, updated_at = ? WHERE relative_path = ?`,
-        )
-        .run(rating, Date.now(), relativePath);
-    } catch (err) {
-      this.logger.warn(
-        `Rating read failed for ${relativePath}: ${err instanceof Error ? err.message : err}`,
-      );
-    }
-  }
-
-  private getStoredScanRoot(): string | null {
+  private getSetting(key: string): string | null {
     const row = this.db.raw
       .prepare(`SELECT value FROM app_settings WHERE key = ?`)
-      .get(LIBRARY_SCAN_ROOT_KEY) as { value: string } | undefined;
+      .get(key) as { value: string } | undefined;
     return row?.value ?? null;
   }
 
-  private setStoredScanRoot(root: string): void {
+  private setSetting(key: string, value: string): void {
     this.db.raw
       .prepare(
         `INSERT INTO app_settings (key, value) VALUES (?, ?)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
       )
-      .run(LIBRARY_SCAN_ROOT_KEY, root);
+      .run(key, value);
   }
 
-  private maybeRebaseCataloguePaths(newRoot: string): void {
-    const storedRoot = this.getStoredScanRoot();
-    const change = detectRootChange(storedRoot, newRoot);
+  private getStoredScanRoots(): string[] | null {
+    return parseStoredScanRoots(this.getSetting(LIBRARY_SCAN_ROOT_KEY));
+  }
 
-    if (change.kind === 'unknown') {
-      const trackCount = (
-        this.db.raw.prepare(`SELECT COUNT(*) AS n FROM tracks`).get() as {
-          n: number;
-        }
-      ).n;
-      if (trackCount > 0) {
-        this.setStoredScanRoot(newRoot);
-        this.logger.log(
-          `Recorded library scan root for existing catalogue: ${newRoot}`,
-        );
-      }
-      return;
+  private setStoredScanRoots(roots: string[]): void {
+    this.setSetting(LIBRARY_SCAN_ROOT_KEY, serializeStoredScanRoots(roots));
+  }
+
+  private loadCheckpoint(roots: string[]): ScanCheckpoint | null {
+    const checkpoint = parseScanCheckpoint(
+      this.getSetting(LIBRARY_SCAN_CHECKPOINT_KEY),
+    );
+    if (!checkpoint || !checkpointMatchesRoots(checkpoint, roots)) {
+      return null;
     }
+    return checkpoint;
+  }
 
-    if (change.kind === 'same') {
-      return;
+  private saveCheckpoint(checkpoint: ScanCheckpoint): void {
+    this.setSetting(LIBRARY_SCAN_CHECKPOINT_KEY, JSON.stringify(checkpoint));
+  }
+
+  private clearCheckpoint(): void {
+    this.db.raw
+      .prepare(`DELETE FROM app_settings WHERE key = ?`)
+      .run(LIBRARY_SCAN_CHECKPOINT_KEY);
+  }
+
+  private getLastFullScanAt(): number | null {
+    const raw = this.getSetting(LIBRARY_LAST_FULL_SCAN_AT_KEY);
+    if (!raw) {
+      return null;
     }
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
 
-    if (change.kind === 'unrelated') {
-      this.logger.warn(
-        `Library path changed to an unrelated folder (${storedRoot} -> ${newRoot}); catalogue paths will not be rebased`,
-      );
-      return;
+  private setLastFullScanAt(timestamp: number): void {
+    this.setSetting(LIBRARY_LAST_FULL_SCAN_AT_KEY, String(timestamp));
+  }
+
+  private getScanIssues(): ScanIssueDto[] {
+    return parseScanIssues(this.getSetting(LIBRARY_SCAN_ISSUES_KEY));
+  }
+
+  private saveScanIssues(issues: ScanIssueDto[]): void {
+    this.setSetting(
+      LIBRARY_SCAN_ISSUES_KEY,
+      JSON.stringify(issues.slice(0, MAX_SCAN_ISSUES)),
+    );
+  }
+
+  private getProgressEstimate(): number {
+    const lastJob = this.jobStatus('scan');
+    if (lastJob.total > 0) {
+      return lastJob.total;
     }
+    const trackCount = this.db.raw
+      .prepare(`SELECT COUNT(*) AS n FROM tracks WHERE available = 1`)
+      .get() as { n: number };
+    return trackCount.n;
+  }
 
-    this.setJob('scan', {
-      running: true,
-      current: 0,
-      total: 0,
-      message: 'Rebasing catalogue paths…',
-    });
+  private getDirMtimes(): Record<string, number> {
+    const rows = this.db.raw
+      .prepare(`SELECT relative_path, mtime_ms FROM library_dir_stats`)
+      .all() as Array<{ relative_path: string; mtime_ms: number }>;
+    return Object.fromEntries(rows.map((row) => [row.relative_path, row.mtime_ms]));
+  }
 
+  private setDirMtime(relativePath: string, mtimeMs: number): void {
+    this.db.raw
+      .prepare(
+        `INSERT INTO library_dir_stats (relative_path, mtime_ms) VALUES (?, ?)
+         ON CONFLICT(relative_path) DO UPDATE SET mtime_ms = excluded.mtime_ms`,
+      )
+      .run(relativePath, mtimeMs);
+  }
+
+  private async maybeRebaseCataloguePaths(newRoots: string[]): Promise<void> {
+    const storedRoots = this.getStoredScanRoots();
     const rows = this.db.raw
       .prepare(`SELECT id, relative_path FROM tracks`)
       .all() as Array<{ id: number; relative_path: string }>;
 
-    const plan = planPathRebase(rows, change);
-    if (!plan || hasPathRebaseConflicts(rows, plan)) {
-      this.logger.warn(
-        `Could not rebase catalogue paths for root change (${storedRoot} -> ${newRoot}); falling back to full re-index`,
-      );
+    const plan = planMultiRootRebase(storedRoots, newRoots, rows);
+    if (!plan) {
+      return;
+    }
+
+    if (plan.warnMessage) {
+      if (plan.clearCheckpoint) {
+        this.clearCheckpoint();
+      }
+      this.logger.warn(plan.warnMessage);
+    }
+
+    if (plan.pathUpdates.length === 0) {
+      if (plan.logMessage) {
+        this.logger.log(plan.logMessage);
+      }
+      this.setStoredScanRoots(plan.storedRootsAfter);
       return;
     }
 
@@ -726,17 +1208,62 @@ export class LibraryService {
       `UPDATE tracks SET relative_path = ?, updated_at = ? WHERE id = ?`,
     );
     const now = Date.now();
-    const tx = this.db.raw.transaction((updates: typeof plan.updates) => {
-      for (const row of updates) {
-        update.run(row.relative_path, now, row.id);
-      }
-      this.setStoredScanRoot(newRoot);
-    });
-    tx(plan.updates);
+    let applied = 0;
+    const total = plan.pathUpdates.length;
 
-    this.logger.log(
-      `Rebased ${plan.updates.length} catalogue path(s) for root change (${storedRoot} -> ${newRoot})`,
-    );
+    this.setJob('scan', {
+      running: true,
+      current: 0,
+      total,
+      message: `Rebasing paths 0 / ${total.toLocaleString()}`,
+    });
+
+    for (
+      let offset = 0;
+      offset < plan.pathUpdates.length;
+      offset += this.config.scanChunkSize
+    ) {
+      if (this.scanCancelRequested) {
+        this.setJob('scan', {
+          running: false,
+          current: applied,
+          total,
+          message: 'Scan cancelled',
+        });
+        return;
+      }
+
+      const batch = plan.pathUpdates.slice(
+        offset,
+        offset + this.config.scanChunkSize,
+      );
+      const tx = this.db.raw.transaction((updates: typeof batch) => {
+        for (const row of updates) {
+          update.run(row.relative_path, now, row.id);
+        }
+      });
+      tx(batch);
+      applied += batch.length;
+
+      this.setJob('scan', {
+        running: true,
+        current: applied,
+        total,
+        message: `Rebasing paths ${applied.toLocaleString()} / ${total.toLocaleString()}`,
+      });
+      await yieldEventLoop();
+    }
+
+    this.setStoredScanRoots(plan.storedRootsAfter);
+    if (plan.logMessage) {
+      this.logger.log(
+        `${plan.logMessage} (${plan.pathUpdates.length} path update(s))`,
+      );
+    } else {
+      this.logger.log(
+        `Rebased ${plan.pathUpdates.length} catalogue path(s) for library path change`,
+      );
+    }
   }
 
   private normalizeMinRating(minRating?: number): number | null {

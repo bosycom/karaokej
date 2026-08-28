@@ -3,6 +3,7 @@ import { PlaybackStateDto } from '@karaokej/shared';
 import { DbService } from '../db/db.service';
 import { QueueService } from '../queue/queue.service';
 import { SessionService } from '../session/session.service';
+import { SettingsService } from '../settings/settings.service';
 
 @Injectable()
 export class PlaybackService {
@@ -10,6 +11,7 @@ export class PlaybackService {
     private readonly db: DbService,
     private readonly session: SessionService,
     private readonly queue: QueueService,
+    private readonly settings: SettingsService,
   ) {}
 
   get(): PlaybackStateDto {
@@ -94,6 +96,16 @@ export class PlaybackService {
       .prepare(`SELECT player_client_id FROM playback_state WHERE id = 1`)
       .get() as { player_client_id: string | null };
     if (clientId && playback.player_client_id && playback.player_client_id !== clientId) {
+      return this.get();
+    }
+    const row = this.db.raw
+      .prepare(`SELECT current_queue_item_id FROM playback_state WHERE id = 1`)
+      .get() as { current_queue_item_id: number | null };
+    if (
+      this.settings.isRemovePlayedFromQueueEnabled() &&
+      row.current_queue_item_id
+    ) {
+      this.queue.remove(row.current_queue_item_id);
       return this.get();
     }
     return this.skip();

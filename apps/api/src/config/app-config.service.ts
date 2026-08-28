@@ -2,6 +2,12 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { mkdirSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
+import {
+  buildLibraryPathLayout,
+  parseLibraryPathEntries,
+  resolveUnderLibraries,
+  type LibraryPathLayout,
+} from '../library/library-paths';
 
 function clampInt(value: string | undefined, fallback: number, min: number, max: number): number {
   const parsed = Number.parseInt(value ?? '', 10);
@@ -17,6 +23,8 @@ function envFlag(value: string | undefined): boolean {
 
 @Injectable()
 export class AppConfigService {
+  private libraryLayoutCache: LibraryPathLayout | null = null;
+
   constructor(private readonly config: ConfigService) {}
 
   /** Repo root: apps/api/dist/config -> ../../../../ */
@@ -24,12 +32,23 @@ export class AppConfigService {
     return resolve(__dirname, '../../../../');
   }
 
+  get libraryPaths(): string[] {
+    return this.libraryLayout.roots;
+  }
+
   get libraryPath(): string | null {
-    const raw = this.config.get<string>('MUSIC_LIBRARY_PATH')?.trim();
-    if (!raw) {
-      return null;
+    return this.libraryPaths[0] ?? null;
+  }
+
+  get libraryLayout(): LibraryPathLayout {
+    if (!this.libraryLayoutCache) {
+      const roots = parseLibraryPathEntries(
+        this.config.get<string>('MUSIC_LIBRARY_PATH'),
+        this.repoRoot,
+      );
+      this.libraryLayoutCache = buildLibraryPathLayout(roots);
     }
-    return isAbsolute(raw) ? resolve(raw) : resolve(this.repoRoot, raw);
+    return this.libraryLayoutCache;
   }
 
   get databasePath(): string {
@@ -99,15 +118,14 @@ export class AppConfigService {
     return raw === 'header_only' ? 'header_only' : 'full_fallback';
   }
 
-  resolveUnderLibrary(relativePath: string): string | null {
-    const root = this.libraryPath;
-    if (!root) {
-      return null;
-    }
-    const absolute = resolve(root, relativePath);
-    if (absolute !== root && !absolute.startsWith(root + '/')) {
-      return null;
-    }
-    return absolute;
+  resolveUnderLibrary(
+    relativePath: string,
+    legacyUnprefixedRoot?: string | null,
+  ): string | null {
+    return resolveUnderLibraries(
+      relativePath,
+      this.libraryLayout,
+      legacyUnprefixedRoot ?? this.libraryPath,
+    );
   }
 }

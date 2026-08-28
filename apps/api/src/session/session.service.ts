@@ -9,13 +9,17 @@ import {
 } from '@karaokej/shared';
 import { DbService } from '../db/db.service';
 import { JobRow, PlaybackRow, TrackRow, trackToDto } from '../db/types';
+import { SettingsService } from '../settings/settings.service';
 
 @Injectable()
 export class SessionService implements OnModuleDestroy {
   private readonly logger = new Logger(SessionService.name);
   private readonly clients = new Set<WebSocket>();
 
-  constructor(private readonly db: DbService) {}
+  constructor(
+    private readonly db: DbService,
+    private readonly settings: SettingsService,
+  ) {}
 
   onModuleDestroy(): void {
     for (const client of this.clients) {
@@ -62,6 +66,7 @@ export class SessionService implements OnModuleDestroy {
         scan: this.job('scan'),
         lyricsFetch: this.job('lyrics'),
       },
+      settings: this.settings.get(),
     };
   }
 
@@ -99,7 +104,7 @@ export class SessionService implements OnModuleDestroy {
            t.id, t.relative_path, t.format, t.size_bytes, t.mtime_ms,
            t.title, t.artist, t.album, t.album_artist, t.track_no, t.duration_ms,
            t.lyric_status, t.lyric_source, t.lyric_checked_at, t.lrclib_id,
-           t.fingerprint, t.created_at, t.updated_at
+           t.fingerprint, t.rating, t.year, t.genres, t.created_at, t.updated_at
          FROM queue_items q
          JOIN tracks t ON t.id = q.track_id
          ORDER BY q.position ASC, q.id ASC`,

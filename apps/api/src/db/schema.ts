@@ -16,6 +16,11 @@ CREATE TABLE IF NOT EXISTS tracks (
   lyric_checked_at INTEGER,
   lrclib_id INTEGER,
   fingerprint TEXT,
+  rating INTEGER,
+  year INTEGER,
+  genres TEXT,
+  metadata_status TEXT NOT NULL DEFAULT 'ready',
+  available INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -87,4 +92,32 @@ CREATE TABLE IF NOT EXISTS jobs (
   message TEXT,
   updated_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS app_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS library_dir_stats (
+  relative_path TEXT PRIMARY KEY,
+  mtime_ms INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS playlists (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  description TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS playlist_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+  track_id INTEGER NOT NULL REFERENCES tracks(id),
+  position INTEGER NOT NULL,
+  added_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_playlist_items_playlist ON playlist_items(playlist_id, position);
 `;

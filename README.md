@@ -10,6 +10,7 @@ Requires **Node.js 22+** (uses the built-in `node:sqlite` driver).
 cp .env.example .env
 # MUSIC_LIBRARY_PATH defaults to ./sample-music for a first run.
 # Point it at your Samba mount when you are ready, e.g. /mnt/music
+# Multiple libraries: comma-separated, e.g. /mnt/a/Music,/mnt/b/Karaoke
 npm install
 npm run dev
 ```

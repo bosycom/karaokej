@@ -1,17 +1,21 @@
 import { useDraggable } from '@dnd-kit/core';
+import { FiPlay } from 'react-icons/fi';
 import { TrackDto } from '@karaokej/shared';
 import { api } from '../api';
 import { trackDragId } from '../dnd/dragIds';
-import { formatDuration, lyricBadge } from '../format';
+import { formatDuration, lyricBadge, trackSubtitleSegments } from '../format';
 import { IconMenu } from './IconMenu';
 import { ProcessingText } from './ProcessingText';
 import { StarRating } from './StarRating';
+import { TrackSearchTerm } from './TrackSearchTerm';
 
 interface DraggableTrackRowProps {
   track: TrackDto;
   fetching: boolean;
   onFetchLyrics: (trackId: number) => void;
   onRate: (trackId: number, rating: number) => void;
+  onApplySearchTerm: (term: string) => void;
+  onPlay: (track: TrackDto) => void;
 }
 
 export function DraggableTrackRow({
@@ -19,6 +23,8 @@ export function DraggableTrackRow({
   fetching,
   onFetchLyrics,
   onRate,
+  onApplySearchTerm,
+  onPlay,
 }: DraggableTrackRowProps) {
   const { listeners, setNodeRef, isDragging } = useDraggable({
     id: trackDragId(track.id),
@@ -27,6 +33,7 @@ export function DraggableTrackRow({
   const badge = lyricBadge(track.lyricStatus);
   const canFetch = track.lyricStatus !== 'present';
   const fetchLabel = fetching ? 'Fetching…' : 'Fetch lyric';
+  const tagsPending = track.metadataStatus === 'pending';
 
   const copyFilePath = async () => {
     const { path } = await api.trackPath(track.id);
@@ -36,10 +43,31 @@ export function DraggableTrackRow({
   return (
     <li ref={setNodeRef} className={isDragging ? 'dragging' : undefined}>
       <div className="track-main" title="Drag to add to queue" {...listeners}>
-        <strong>{track.title}</strong>
+        <strong>
+          <TrackSearchTerm term={track.title} onApplySearchTerm={onApplySearchTerm} />
+        </strong>
         <span>
-          {track.artist ?? 'Unknown artist'}
-          {track.album ? ` · ${track.album}` : ''}
+          {trackSubtitleSegments(track).map((segment, index) => {
+            if (segment.kind === 'artist' && segment.searchable) {
+              return (
+                <TrackSearchTerm
+                  key={`artist-${index}`}
+                  term={segment.text}
+                  onApplySearchTerm={onApplySearchTerm}
+                />
+              );
+            }
+            if (segment.kind === 'album') {
+              return (
+                <TrackSearchTerm
+                  key={`album-${index}`}
+                  term={segment.text}
+                  onApplySearchTerm={onApplySearchTerm}
+                />
+              );
+            }
+            return <span key={`${segment.kind}-${index}`}>{segment.text}</span>;
+          })}
         </span>
       </div>
       <div className="track-meta">
@@ -60,6 +88,11 @@ export function DraggableTrackRow({
         ) : (
           <span className={`badge ${badge.tone}`}>{badge.label}</span>
         )}
+        {tagsPending ? (
+          <span className="badge warn" title="Tags not read yet">
+            Tags pending
+          </span>
+        ) : null}
         <span className="time">{formatDuration(track.durationMs)}</span>
         <StarRating
           value={track.rating}
@@ -67,6 +100,15 @@ export function DraggableTrackRow({
           ariaLabel={`Rate ${track.title}`}
           onConfirm={(rating) => onRate(track.id, rating)}
         />
+        <button
+          type="button"
+          className="icon-btn"
+          title={`Play ${track.title}`}
+          aria-label={`Play ${track.title}`}
+          onClick={() => onPlay(track)}
+        >
+          <FiPlay aria-hidden />
+        </button>
         <IconMenu
           ariaLabel={`Actions for ${track.title}`}
           items={[

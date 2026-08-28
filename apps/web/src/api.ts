@@ -1,9 +1,17 @@
 import {
+  AppSettingsDto,
   LibraryStatusDto,
+  LyricSearchResultDto,
   LyricsDto,
+  PlaylistDetailDto,
+  PlaylistQueueMode,
+  PlaylistSummaryDto,
+  QueueItemDto,
+  RandomArtistDto,
   SessionStateDto,
   TrackDto,
   TrackPageDto,
+  TrackPathDto,
 } from '@karaokej/shared';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -29,6 +37,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   libraryStatus: () => request<LibraryStatusDto>('/api/library/status'),
+  randomArtist: (exclude?: string) => {
+    const params = new URLSearchParams();
+    if (exclude?.trim()) {
+      params.set('exclude', exclude.trim());
+    }
+    const query = params.toString();
+    return request<RandomArtistDto>(
+      `/api/library/artists/random${query ? `?${query}` : ''}`,
+    );
+  },
   scan: () => request<LibraryStatusDto>('/api/library/scan', { method: 'POST' }),
   cancelScan: () =>
     request<LibraryStatusDto>('/api/library/scan/cancel', { method: 'POST' }),
@@ -40,23 +58,71 @@ export const api = {
     }),
   fetchTrackLyrics: (trackId: number) =>
     request<TrackDto>(`/api/tracks/${trackId}/lyrics/fetch`, { method: 'POST' }),
-  tracks: (q: string, page: number, limit = 50) => {
+  searchTrackLyrics: (trackId: number, q: string) => {
+    const params = new URLSearchParams({ q });
+    return request<LyricSearchResultDto>(
+      `/api/tracks/${trackId}/lyrics/search?${params.toString()}`,
+    );
+  },
+  applyTrackLyrics: (trackId: number, lrclibId: number) =>
+    request<TrackDto>(`/api/tracks/${trackId}/lyrics/apply`, {
+      method: 'POST',
+      body: JSON.stringify({ lrclibId }),
+    }),
+  tracks: (
+    q: string,
+    page: number,
+    limit = 15,
+    minRating = 0,
+    hideDuplicates = false,
+  ) => {
     const params = new URLSearchParams({
       q,
       page: String(page),
       limit: String(limit),
     });
+    if (minRating > 0) {
+      params.set('minRating', String(minRating));
+    }
+    if (hideDuplicates) {
+      params.set('hideDuplicates', '1');
+    }
     return request<TrackPageDto>(`/api/tracks?${params}`);
   },
+  setTrackRating: (trackId: number, rating: number) =>
+    request<TrackDto>(`/api/tracks/${trackId}/rating`, {
+      method: 'PUT',
+      body: JSON.stringify({ rating }),
+    }),
+  trackPath: (trackId: number) =>
+    request<TrackPathDto>(`/api/tracks/${trackId}/path`),
   lyrics: (trackId: number) => request<LyricsDto>(`/api/tracks/${trackId}/lyrics`),
   addToQueue: (trackId: number) =>
-    request('/api/queue', { method: 'POST', body: JSON.stringify({ trackId }) }),
+    request<QueueItemDto[]>('/api/queue', { method: 'POST', body: JSON.stringify({ trackId }) }),
+  playTrackNow: async (trackId: number) => {
+    const queue = await request<QueueItemDto[]>('/api/queue', {
+      method: 'POST',
+      body: JSON.stringify({ trackId }),
+    });
+    const added = queue.at(-1);
+    if (added) {
+      await request('/api/playback/play-item', {
+        method: 'POST',
+        body: JSON.stringify({ queueItemId: added.id }),
+      });
+    }
+  },
   removeFromQueue: (id: number) =>
     request(`/api/queue/${id}`, { method: 'DELETE' }),
-  moveQueue: (id: number, direction: 'up' | 'down') =>
-    request(`/api/queue/${id}/move`, {
-      method: 'POST',
-      body: JSON.stringify({ direction }),
+  clearQueue: (mode: 'all' | 'except_current' | 'before_current' = 'all') => {
+    const query =
+      mode === 'all' ? '' : `?mode=${encodeURIComponent(mode)}`;
+    return request<QueueItemDto[]>(`/api/queue${query}`, { method: 'DELETE' });
+  },
+  reorderQueue: (ids: number[]) =>
+    request('/api/queue/reorder', {
+      method: 'PATCH',
+      body: JSON.stringify({ ids }),
     }),
   play: () => request('/api/playback/play', { method: 'POST' }),
   pause: () => request('/api/playback/pause', { method: 'POST' }),
@@ -92,6 +158,48 @@ export const api = {
       body: JSON.stringify({ clientId }),
     }),
   session: () => request<SessionStateDto>('/api/session'),
+  getSettings: () => request<AppSettingsDto>('/api/settings'),
+  patchSettings: (partial: Partial<AppSettingsDto>) =>
+    request<AppSettingsDto>('/api/settings', {
+      method: 'PATCH',
+      body: JSON.stringify(partial),
+    }),
+  playlists: () => request<PlaylistSummaryDto[]>('/api/playlists'),
+  playlist: (id: number) => request<PlaylistDetailDto>(`/api/playlists/${id}`),
+  createPlaylist: (name: string, description?: string | null) =>
+    request<PlaylistDetailDto>('/api/playlists', {
+      method: 'POST',
+      body: JSON.stringify({ name, description }),
+    }),
+  updatePlaylist: (
+    id: number,
+    patch: { name?: string; description?: string | null },
+  ) =>
+    request<PlaylistDetailDto>(`/api/playlists/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  deletePlaylist: (id: number) =>
+    request<void>(`/api/playlists/${id}`, { method: 'DELETE' }),
+  addToPlaylist: (playlistId: number, trackId: number) =>
+    request<PlaylistDetailDto>(`/api/playlists/${playlistId}/items`, {
+      method: 'POST',
+      body: JSON.stringify({ trackId }),
+    }),
+  removeFromPlaylist: (playlistId: number, itemId: number) =>
+    request<PlaylistDetailDto>(`/api/playlists/${playlistId}/items/${itemId}`, {
+      method: 'DELETE',
+    }),
+  reorderPlaylistItems: (playlistId: number, ids: number[]) =>
+    request<PlaylistDetailDto>(`/api/playlists/${playlistId}/items/reorder`, {
+      method: 'PATCH',
+      body: JSON.stringify({ ids }),
+    }),
+  loadPlaylistIntoQueue: (playlistId: number, mode: PlaylistQueueMode) =>
+    request<QueueItemDto[]>(`/api/playlists/${playlistId}/queue`, {
+      method: 'POST',
+      body: JSON.stringify({ mode }),
+    }),
 };
 
 export function wsUrl(): string {
@@ -119,5 +227,8 @@ export const emptySession: SessionStateDto = {
       total: 0,
       message: null,
     },
+  },
+  settings: {
+    removePlayedFromQueue: false,
   },
 };

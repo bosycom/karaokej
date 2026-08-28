@@ -4,27 +4,66 @@ export const LIBRARY_SCAN_ISSUES_KEY = 'library_scan_issues';
 export const MAX_SCAN_ISSUES = 5000;
 
 export interface ScanCheckpoint {
+  roots: string[];
+  rootIndex: number;
+  completedGroups: string[];
+}
+
+export interface LegacyScanCheckpoint {
   root: string;
   completedGroups: string[];
 }
 
-export function parseScanCheckpoint(raw: string | null | undefined): ScanCheckpoint | null {
+export function parseScanCheckpoint(
+  raw: string | null | undefined,
+): ScanCheckpoint | null {
   if (!raw) {
     return null;
   }
   try {
-    const parsed = JSON.parse(raw) as ScanCheckpoint;
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
     if (
-      typeof parsed.root !== 'string' ||
-      !Array.isArray(parsed.completedGroups) ||
-      !parsed.completedGroups.every((entry) => typeof entry === 'string')
+      Array.isArray(parsed.roots) &&
+      parsed.roots.every((entry) => typeof entry === 'string') &&
+      typeof parsed.rootIndex === 'number' &&
+      Array.isArray(parsed.completedGroups) &&
+      parsed.completedGroups.every((entry) => typeof entry === 'string')
     ) {
-      return null;
+      return {
+        roots: parsed.roots as string[],
+        rootIndex: parsed.rootIndex as number,
+        completedGroups: parsed.completedGroups as string[],
+      };
     }
-    return parsed;
+    if (
+      typeof parsed.root === 'string' &&
+      Array.isArray(parsed.completedGroups) &&
+      parsed.completedGroups.every((entry) => typeof entry === 'string')
+    ) {
+      return {
+        roots: [parsed.root],
+        rootIndex: 0,
+        completedGroups: parsed.completedGroups as string[],
+      };
+    }
+    return null;
   } catch {
     return null;
   }
+}
+
+export function checkpointMatchesRoots(
+  checkpoint: ScanCheckpoint,
+  roots: string[],
+): boolean {
+  if (checkpoint.roots.length !== roots.length) {
+    return false;
+  }
+  const normalizedCheckpoint = [...checkpoint.roots].sort();
+  const normalizedRoots = [...roots].sort();
+  return normalizedCheckpoint.every(
+    (root, index) => root === normalizedRoots[index],
+  );
 }
 
 export function groupIdForRelativePath(relativePath: string): string {

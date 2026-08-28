@@ -1,9 +1,11 @@
 import {
+  Body,
   Controller,
   Get,
   Param,
   ParseIntPipe,
   Post,
+  Put,
   Query,
   Req,
   Res,
@@ -11,6 +13,7 @@ import {
 import { Request, Response } from 'express';
 import { LibraryService } from '../library/library.service';
 import { LyricsService } from '../lyrics/lyrics.service';
+import { RatingService } from '../rating/rating.service';
 import { StreamService } from '../stream/stream.service';
 import { trackToDto } from '../db/types';
 import { NotFoundException } from '@nestjs/common';
@@ -21,15 +24,30 @@ export class TracksController {
     private readonly library: LibraryService,
     private readonly lyrics: LyricsService,
     private readonly stream: StreamService,
+    private readonly ratings: RatingService,
   ) {}
 
   @Get()
   search(
     @Query('q') q = '',
     @Query('page') page = '1',
-    @Query('limit') limit = '50',
+    @Query('limit') limit = '15',
+    @Query('minRating') minRating?: string,
+    @Query('hideDuplicates') hideDuplicates?: string,
   ) {
-    return this.library.search(q, Number(page) || 1, Number(limit) || 50);
+    const parsed =
+      minRating == null || minRating === '' ? undefined : Number(minRating);
+    const dedupe =
+      hideDuplicates === '1' ||
+      hideDuplicates === 'true' ||
+      hideDuplicates === 'yes';
+    return this.library.search(
+      q,
+      Number(page) || 1,
+      Number(limit) || 15,
+      parsed,
+      dedupe,
+    );
   }
 
   @Get(':id/audio')
@@ -49,6 +67,36 @@ export class TracksController {
   @Post(':id/lyrics/fetch')
   fetchLyrics(@Param('id', ParseIntPipe) id: number) {
     return this.lyrics.fetchTrack(id);
+  }
+
+  @Get(':id/lyrics/search')
+  searchLyrics(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('q') q = '',
+  ) {
+    return this.lyrics.searchForTrack(id, q);
+  }
+
+  @Post(':id/lyrics/apply')
+  applyLyrics(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { lrclibId?: unknown },
+  ) {
+    const lrclibId = Number(body?.lrclibId);
+    return this.lyrics.applyRecord(id, lrclibId);
+  }
+
+  @Put(':id/rating')
+  setRating(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { rating?: unknown },
+  ) {
+    return this.ratings.setRating(id, body?.rating);
+  }
+
+  @Get(':id/path')
+  path(@Param('id', ParseIntPipe) id: number) {
+    return this.library.getTrackPath(id);
   }
 
   @Get(':id')

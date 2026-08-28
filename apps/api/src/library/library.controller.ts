@@ -1,4 +1,4 @@
-import { Controller, Get, Post } from '@nestjs/common';
+import { Controller, Get, Post, Query } from '@nestjs/common';
 import { LibraryService } from './library.service';
 import { LyricsService } from '../lyrics/lyrics.service';
 
@@ -12,6 +12,11 @@ export class LibraryController {
   @Get('status')
   status() {
     return this.library.status();
+  }
+
+  @Get('artists/random')
+  randomArtist(@Query('exclude') exclude?: string) {
+    return this.library.getRandomArtist(exclude);
   }
 
   @Post('scan')

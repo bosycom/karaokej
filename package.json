@@ -12,6 +12,7 @@
     "dev": "concurrently -n shared,api,web -c blue,green,magenta \"npm run dev -w @karaokej/shared\" \"npm run start:dev -w @karaokej/api\" \"npm run dev -w @karaokej/web\"",
     "build": "npm run build -w @karaokej/shared && npm run build -w @karaokej/web && npm run build -w @karaokej/api",
     "start": "npm run start -w @karaokej/api",
+    "typecheck": "tsc --noEmit -p packages/shared/tsconfig.json && tsc --noEmit -p apps/api/tsconfig.json && tsc --noEmit -p apps/web/tsconfig.json",
     "clean": "npm run clean --workspaces --if-present"
   },
   "devDependencies": {

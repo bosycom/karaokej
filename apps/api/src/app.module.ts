@@ -16,6 +16,11 @@ import { QueueService } from './queue/queue.service';
 import { LyricsService } from './lyrics/lyrics.service';
 import { LrclibClient } from './lyrics/lrclib.client';
 import { StreamService } from './stream/stream.service';
+import { SettingsService } from './settings/settings.service';
+import { SettingsController } from './settings/settings.controller';
+import { RatingService } from './rating/rating.service';
+import { PlaylistsController } from './playlists/playlists.controller';
+import { PlaylistsService } from './playlists/playlists.service';
 
 @Module({
   imports: [
@@ -34,6 +39,8 @@ import { StreamService } from './stream/stream.service';
     QueueController,
     PlaybackController,
     SessionController,
+    SettingsController,
+    PlaylistsController,
   ],
   providers: [
     AppConfigService,
@@ -46,6 +53,9 @@ import { StreamService } from './stream/stream.service';
     LyricsService,
     LrclibClient,
     StreamService,
+    SettingsService,
+    RatingService,
+    PlaylistsService,
   ],
 })
 export class AppModule {}
