@@ -81,6 +81,29 @@ export interface PathRebasePlan {
   updates: Array<{ id: number; relative_path: string }>;
 }
 
+function normalizedPrefix(prefix: string): string {
+  return normalizeRelativePath(prefix).replace(/\/+$/, '');
+}
+
+function rowAlreadyRebased(
+  row: PathRebaseRow,
+  change: Extract<RootChange, { kind: 'expanded' | 'narrowed' }>,
+): boolean {
+  const path = normalizeRelativePath(row.relative_path);
+  if (change.kind === 'expanded') {
+    const prefix = normalizedPrefix(change.prefix);
+    if (!prefix) {
+      return true;
+    }
+    return path.startsWith(`${prefix}/`);
+  }
+  const prefix = normalizedPrefix(change.stripPrefix);
+  if (!prefix) {
+    return true;
+  }
+  return !path.startsWith(`${prefix}/`);
+}
+
 /** Build id -> new relative_path updates for an expanded or narrowed root change. */
 export function planPathRebase(
   rows: PathRebaseRow[],
@@ -91,6 +114,9 @@ export function planPathRebase(
 
   if (change.kind === 'expanded') {
     for (const row of rows) {
+      if (rowAlreadyRebased(row, change)) {
+        continue;
+      }
       const nextPath = prefixRelativePath(change.prefix, row.relative_path);
       if (targets.has(nextPath)) {
         return null;
@@ -102,6 +128,9 @@ export function planPathRebase(
   }
 
   for (const row of rows) {
+    if (rowAlreadyRebased(row, change)) {
+      continue;
+    }
     const nextPath = stripRelativePath(change.stripPrefix, row.relative_path);
     if (nextPath == null) {
       continue;
@@ -113,6 +142,19 @@ export function planPathRebase(
     updates.push({ id: row.id, relative_path: nextPath });
   }
   return { updates };
+}
+
+/** Final relative_path values after applying a rebase plan (including unchanged rows). */
+export function projectedPathsAfterRebase(
+  rows: PathRebaseRow[],
+  plan: PathRebasePlan,
+): Map<number, string> {
+  const updated = new Map(plan.updates.map((row) => [row.id, row.relative_path]));
+  const projected = new Map<number, string>();
+  for (const row of rows) {
+    projected.set(row.id, updated.get(row.id) ?? row.relative_path);
+  }
+  return projected;
 }
 
 /** Detect target-path collisions with rows that are not being updated. */

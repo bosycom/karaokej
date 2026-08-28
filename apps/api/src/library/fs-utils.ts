@@ -1,12 +1,13 @@
 import { AudioFormat } from '@karaokej/shared';
-import { readdir, stat } from 'node:fs/promises';
-import { basename, extname, join, relative } from 'node:path';
+import { basename, extname } from 'node:path';
 
 export const AUDIO_EXTENSIONS: Record<string, AudioFormat> = {
   '.mp3': 'mp3',
   '.flac': 'flac',
   '.opus': 'opus',
 };
+
+export const SCAN_FILE_CHUNK_SIZE = 1000;
 
 const SKIP_DIR_NAMES = new Set([
   '.git',
@@ -26,6 +27,11 @@ export interface WalkedFile {
   format: AudioFormat;
 }
 
+export interface ExistingTrackFingerprint {
+  size_bytes: number;
+  mtime_ms: number;
+}
+
 export function isJunkDir(name: string): boolean {
   const lower = name.toLowerCase();
   if (SKIP_DIR_NAMES.has(lower)) {
@@ -40,62 +46,16 @@ export function isJunkDir(name: string): boolean {
   return false;
 }
 
-export async function walkAudioFiles(
-  libraryRoot: string,
-  shouldAbort?: () => boolean,
-): Promise<WalkedFile[]> {
-  const results: WalkedFile[] = [];
-
-  async function visit(dir: string): Promise<void> {
-    if (shouldAbort?.()) {
-      return;
-    }
-    let entries;
-    try {
-      entries = await readdir(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-
-    for (const entry of entries) {
-      if (shouldAbort?.()) {
-        return;
-      }
-      if (entry.name.startsWith('._')) {
-        continue;
-      }
-      const full = join(dir, entry.name);
-      if (entry.isDirectory()) {
-        if (!isJunkDir(entry.name)) {
-          await visit(full);
-        }
-        continue;
-      }
-      if (!entry.isFile()) {
-        continue;
-      }
-      const ext = extname(entry.name).toLowerCase();
-      const format = AUDIO_EXTENSIONS[ext];
-      if (!format) {
-        continue;
-      }
-      try {
-        const info = await stat(full);
-        results.push({
-          absolutePath: full,
-          relativePath: relative(libraryRoot, full),
-          sizeBytes: info.size,
-          mtimeMs: Math.floor(info.mtimeMs),
-          format,
-        });
-      } catch {
-        // File vanished between readdir and stat.
-      }
-    }
+export function isUnchangedFile(
+  file: Pick<WalkedFile, 'sizeBytes' | 'mtimeMs'>,
+  existing: ExistingTrackFingerprint | undefined,
+): boolean {
+  if (!existing) {
+    return false;
   }
-
-  await visit(libraryRoot);
-  return results;
+  return (
+    existing.size_bytes === file.sizeBytes && existing.mtime_ms === file.mtimeMs
+  );
 }
 
 export function lyricPathFor(audioPath: string): string {
@@ -153,4 +113,38 @@ export function fallbackMetadata(
 
 export function yieldEventLoop(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
+}
+
+export interface ScanProgressFolder {
+  label: string;
+  index: number;
+  total: number;
+  resuming?: boolean;
+}
+
+export function formatScanProgressMessage(
+  folder: ScanProgressFolder,
+  processed: number,
+  skippedDirs = 0,
+): string {
+  const prefix = folder.resuming ? 'Resuming' : 'Scanning';
+  const folderPart = `${prefix} ${folder.label} (${folder.index}/${folder.total})`;
+  const countPart =
+    processed > 0 ? ` · ${processed.toLocaleString()} files` : '';
+  const skipPart =
+    skippedDirs > 0
+      ? ` · ${skippedDirs.toLocaleString()} ${skippedDirs === 1 ? 'dir' : 'dirs'} skipped`
+      : '';
+  return `${folderPart}${countPart}${skipPart}`;
+}
+
+export function formatScanCompleteMessage(
+  processed: number,
+  skippedDirs: number,
+): string {
+  const base = `Indexed ${processed.toLocaleString()} tracks`;
+  if (skippedDirs <= 0) {
+    return base;
+  }
+  return `${base} · ${skippedDirs.toLocaleString()} ${skippedDirs === 1 ? 'folder' : 'folders'} skipped`;
 }

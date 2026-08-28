@@ -3,6 +3,18 @@ import { ConfigService } from '@nestjs/config';
 import { mkdirSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
 
+function clampInt(value: string | undefined, fallback: number, min: number, max: number): number {
+  const parsed = Number.parseInt(value ?? '', 10);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, parsed));
+}
+
+function envFlag(value: string | undefined): boolean {
+  return value === '1' || value?.toLowerCase() === 'true';
+}
+
 @Injectable()
 export class AppConfigService {
   constructor(private readonly config: ConfigService) {}
@@ -33,6 +45,41 @@ export class AppConfigService {
       this.config.get<string>('LRCLIB_BASE_URL')?.replace(/\/$/, '') ??
       'https://lrclib.net'
     );
+  }
+
+  get scanChunkSize(): number {
+    return clampInt(
+      this.config.get<string>('LIBRARY_SCAN_CHUNK_SIZE'),
+      1000,
+      50,
+      5000,
+    );
+  }
+
+  get scanMetadataConcurrency(): number {
+    return clampInt(
+      this.config.get<string>('LIBRARY_SCAN_METADATA_CONCURRENCY'),
+      4,
+      1,
+      8,
+    );
+  }
+
+  get scanFsTimeoutMs(): number {
+    return clampInt(
+      this.config.get<string>('LIBRARY_SCAN_FS_TIMEOUT_MS'),
+      15000,
+      1000,
+      120000,
+    );
+  }
+
+  get scanSkipUnchangedDirs(): boolean {
+    return envFlag(this.config.get<string>('LIBRARY_SCAN_SKIP_UNCHANGED_DIRS'));
+  }
+
+  get scanSkipLrcOnUnchanged(): boolean {
+    return envFlag(this.config.get<string>('LIBRARY_SCAN_SKIP_LRC_ON_UNCHANGED'));
   }
 
   resolveUnderLibrary(relativePath: string): string | null {
