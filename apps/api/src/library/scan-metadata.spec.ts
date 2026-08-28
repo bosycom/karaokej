@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { IAudioMetadata } from 'music-metadata';
+import * as durationUtils from './duration-utils';
 import { resolveTrackDurationMs } from './scan-metadata';
 
 function metaWithDuration(seconds: number | undefined): IAudioMetadata {
@@ -76,5 +77,28 @@ describe('resolveTrackDurationMs', () => {
     expect(result.usedFallback).toBe(false);
     expect(result.durationMs).toBeGreaterThan(0);
     expect(parseFile).not.toHaveBeenCalled();
+  });
+
+  it('ignores untrusted header-only Ogg duration from music-metadata', async () => {
+    const tailSpy = vi
+      .spyOn(durationUtils, 'opusDurationFromTail')
+      .mockResolvedValue(149_120);
+    const parseFile = vi.fn();
+    const result = await resolveTrackDurationMs(
+      '/music/song.opus',
+      metaWithDuration(384307168202282.3),
+      parseFile,
+      5000,
+      'song.opus',
+      {
+        durationMode: 'full_fallback',
+        headerBuffer: Buffer.alloc(64),
+        fileSize: 2_000_000,
+      },
+    );
+    expect(result).toEqual({ durationMs: 149_120, usedFallback: false });
+    expect(tailSpy).toHaveBeenCalledWith('/music/song.opus');
+    expect(parseFile).not.toHaveBeenCalled();
+    tailSpy.mockRestore();
   });
 });

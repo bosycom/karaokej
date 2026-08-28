@@ -6,6 +6,25 @@ const OPUS_TAIL_BYTES = 64 * 1024;
 const OPUS_SAMPLE_RATE = 48_000;
 const MP3_SAMPLES_PER_FRAME = 1152;
 
+/** Karaoke-safe upper bound for track length (24 hours). */
+export const MAX_DURATION_MS = 24 * 60 * 60 * 1000;
+
+export function sanitizeDurationMs(
+  value: number | null | undefined,
+): number | null {
+  if (value == null || !Number.isFinite(value)) {
+    return null;
+  }
+  const rounded = Math.round(value);
+  if (rounded <= 0 || rounded > MAX_DURATION_MS) {
+    return null;
+  }
+  if (rounded > Number.MAX_SAFE_INTEGER) {
+    return null;
+  }
+  return rounded;
+}
+
 export function parseOggGranuleFromTail(buffer: Buffer): bigint | null {
   for (let i = buffer.length - 27; i >= 0; i -= 1) {
     if (
@@ -32,8 +51,8 @@ export function parseOggGranuleFromTail(buffer: Buffer): bigint | null {
   return null;
 }
 
-export function granuleToDurationMs(granule: bigint): number {
-  return Math.round(Number(granule) / (OPUS_SAMPLE_RATE / 1000));
+export function granuleToDurationMs(granule: bigint): number | null {
+  return sanitizeDurationMs(Number(granule) / (OPUS_SAMPLE_RATE / 1000));
 }
 
 export function isOggContainerPath(absolutePath: string): boolean {
@@ -56,7 +75,7 @@ function flacStreamInfoDuration(buffer: Buffer, offset: number): number | null {
   if (sampleRate <= 0 || totalSamples <= 0) {
     return null;
   }
-  return Math.round((totalSamples / sampleRate) * 1000);
+  return sanitizeDurationMs((totalSamples / sampleRate) * 1000);
 }
 
 export function flacDurationFromHeader(buffer: Buffer): number | null {
@@ -128,7 +147,7 @@ function durationFromXingTag(
   if (flags & 0x01 && tagOffset + 12 <= buffer.length) {
     const frames = buffer.readUInt32BE(tagOffset + 8);
     if (frames > 0) {
-      return Math.round((frames * MP3_SAMPLES_PER_FRAME * 1000) / rate);
+      return sanitizeDurationMs((frames * MP3_SAMPLES_PER_FRAME * 1000) / rate);
     }
   }
 
@@ -140,7 +159,7 @@ function durationFromXingTag(
         const audioBytes = fileSize - audioStart;
         const durationSec = (audioBytes * 8) / (rate * 1000 / MP3_SAMPLES_PER_FRAME);
         if (durationSec > 0) {
-          return Math.round(durationSec * 1000);
+          return sanitizeDurationMs(durationSec * 1000);
         }
       }
     }
@@ -161,7 +180,7 @@ function durationFromVbriTag(buffer: Buffer, tagOffset: number): number | null {
   const sampleRate =
     syncOffset >= 0 ? mp3SampleRateFromSync(buffer, syncOffset) : null;
   const rate = sampleRate ?? 44100;
-  return Math.round((frames * MP3_SAMPLES_PER_FRAME * 1000) / rate);
+  return sanitizeDurationMs((frames * MP3_SAMPLES_PER_FRAME * 1000) / rate);
 }
 
 export function mp3DurationFromHeader(

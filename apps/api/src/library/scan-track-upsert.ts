@@ -1,5 +1,6 @@
 import { basename, extname } from 'node:path';
 import { fallbackMetadata, makeFingerprint } from './fs-utils';
+import { sanitizeDurationMs } from './duration-utils';
 import type { ParsedTrackMetadata, ScanChunkItem } from './scan-ipc';
 
 interface DbLike {
@@ -114,11 +115,12 @@ export function upsertTagsTrack(
   parsed: ParsedTrackMetadata,
   now: number,
 ): void {
+  const durationMs = sanitizeDurationMs(parsed.durationMs);
   const fingerprint = makeFingerprint(
     parsed.artist,
     parsed.title,
     item.sizeBytes,
-    parsed.durationMs,
+    durationMs,
   );
   const hasLrc = item.hasLrc ?? false;
   const { lyricStatus, lyricSource, lyricCheckedAt, lrclibId } =
@@ -161,7 +163,7 @@ export function upsertTagsTrack(
     parsed.album,
     parsed.albumArtist,
     parsed.trackNo,
-    parsed.durationMs,
+    durationMs,
     lyricStatus,
     lyricSource,
     lyricCheckedAt,

@@ -12,6 +12,7 @@ import {
   mp3DurationFromHeader,
   opusDurationFromTail,
   readAudioHeaderBuffer,
+  sanitizeDurationMs,
 } from './duration-utils';
 import { ratingFromMetadata } from '../rating/rating-tags';
 import type { ParsedTrackMetadata } from './scan-ipc';
@@ -55,7 +56,10 @@ function genresFromMetadata(common: { genre?: string[] | null }): string[] {
 
 function durationMsFromMeta(meta: IAudioMetadata): number | null {
   const duration = meta.format.duration;
-  return duration != null && duration > 0 ? Math.round(duration * 1000) : null;
+  if (duration == null || duration <= 0) {
+    return null;
+  }
+  return sanitizeDurationMs(duration * 1000);
 }
 
 function metadataFromParsed(
@@ -88,14 +92,14 @@ async function formatSpecificDurationMs(
   fileSize: number,
 ): Promise<number | null> {
   if (isFlacPath(absolutePath)) {
-    return flacDurationFromHeader(headerBuffer);
+    return sanitizeDurationMs(flacDurationFromHeader(headerBuffer));
   }
   if (isMp3Path(absolutePath)) {
-    return mp3DurationFromHeader(headerBuffer, fileSize);
+    return sanitizeDurationMs(mp3DurationFromHeader(headerBuffer, fileSize));
   }
   if (isOggContainerPath(absolutePath)) {
     try {
-      return await opusDurationFromTail(absolutePath);
+      return sanitizeDurationMs(await opusDurationFromTail(absolutePath));
     } catch {
       return null;
     }
@@ -118,16 +122,25 @@ export async function resolveTrackDurationMs(
     fileSize?: number;
   },
 ): Promise<{ durationMs: number | null; usedFallback: boolean }> {
-  const headerDuration = durationMsFromMeta(meta);
+  const hasHeaderOnlyParse =
+    options.headerBuffer != null && options.fileSize != null;
+  let headerDuration = durationMsFromMeta(meta);
+  if (
+    headerDuration != null &&
+    isOggContainerPath(absolutePath) &&
+    hasHeaderOnlyParse
+  ) {
+    headerDuration = null;
+  }
   if (headerDuration != null) {
     return { durationMs: headerDuration, usedFallback: false };
   }
 
-  if (options.headerBuffer && options.fileSize != null) {
+  if (hasHeaderOnlyParse) {
     const formatDuration = await formatSpecificDurationMs(
       absolutePath,
-      options.headerBuffer,
-      options.fileSize,
+      options.headerBuffer!,
+      options.fileSize!,
     );
     if (formatDuration != null) {
       return { durationMs: formatDuration, usedFallback: false };
@@ -135,7 +148,9 @@ export async function resolveTrackDurationMs(
   } else {
     if (isOggContainerPath(absolutePath)) {
       try {
-        const tailDuration = await opusDurationFromTail(absolutePath);
+        const tailDuration = sanitizeDurationMs(
+          await opusDurationFromTail(absolutePath),
+        );
         if (tailDuration != null) {
           return { durationMs: tailDuration, usedFallback: false };
         }
