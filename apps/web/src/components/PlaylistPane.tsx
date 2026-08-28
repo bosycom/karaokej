@@ -1,4 +1,4 @@
-import { FormEvent, ReactNode, useState } from 'react';
+import { FormEvent, ReactNode, useMemo, useState } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { FiEdit2, FiPlay, FiPlus, FiTrash2 } from 'react-icons/fi';
 import { PlaylistDetailDto, PlaylistSummaryDto } from '@karaokej/shared';
@@ -32,8 +32,17 @@ export function PlaylistPane({
 }: PlaylistPaneProps) {
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
+  const [searchFilter, setSearchFilter] = useState('');
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editName, setEditName] = useState('');
+
+  const filteredSummaries = useMemo(() => {
+    const needle = searchFilter.trim().toLowerCase();
+    if (!needle) {
+      return summaries;
+    }
+    return summaries.filter((playlist) => playlist.name.toLowerCase().includes(needle));
+  }, [summaries, searchFilter]);
 
   const submitCreate = (event: FormEvent) => {
     event.preventDefault();
@@ -77,6 +86,22 @@ export function PlaylistPane({
         </button>
       </div>
 
+      <form
+        className="search playlist-search"
+        onSubmit={(event) => event.preventDefault()}
+      >
+        <input
+          name="playlist-q"
+          placeholder="Search playlists"
+          value={searchFilter}
+          onChange={(event) => setSearchFilter(event.target.value)}
+          autoComplete="off"
+        />
+        <button type="button" disabled={searchFilter === ''} onClick={() => setSearchFilter('')}>
+          Reset
+        </button>
+      </form>
+
       {creating && (
         <form className="playlist-create" onSubmit={submitCreate}>
           <input
@@ -93,9 +118,11 @@ export function PlaylistPane({
 
       {summaries.length === 0 ? (
         <p className="empty">Create a playlist, then drag songs from the library onto its name.</p>
+      ) : filteredSummaries.length === 0 ? (
+        <p className="empty">No playlists match your search.</p>
       ) : (
         <ul className="playlist-name-list">
-          {summaries.map((playlist) => (
+          {filteredSummaries.map((playlist) => (
             <PlaylistNameRow
               key={playlist.id}
               playlist={playlist}
