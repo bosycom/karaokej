@@ -4,6 +4,7 @@ export const MODAL_IDS = {
   scanHelp: 'scan-help-v2',
   lyricsHelp: 'lyrics-help',
   playlistDelete: 'playlist-delete',
+  queueClear: 'queue-clear',
 } as const;
 
 export type ModalId = (typeof MODAL_IDS)[keyof typeof MODAL_IDS];
@@ -12,6 +13,7 @@ export const KNOWN_MODALS: { id: ModalId; label: string }[] = [
   { id: MODAL_IDS.scanHelp, label: 'Scan library help' },
   { id: MODAL_IDS.lyricsHelp, label: 'Fetch missing lyrics help' },
   { id: MODAL_IDS.playlistDelete, label: 'Delete playlist confirmation' },
+  { id: MODAL_IDS.queueClear, label: 'Empty queue confirmation' },
 ];
 
 function readDismissed(): string[] {

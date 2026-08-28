@@ -32,6 +32,11 @@ export class QueueController {
     return this.queue.reorder(body.ids ?? []);
   }
 
+  @Delete()
+  clear() {
+    return this.queue.clear();
+  }
+
   @Post(':id/move')
   move(
     @Param('id', ParseIntPipe) id: number,

@@ -41,6 +41,10 @@ export class QueueService {
     return this.list();
   }
 
+  clear(): QueueItemDto[] {
+    return this.replaceWithTracks([], false);
+  }
+
   replaceWithTracks(trackIds: number[], startPlaying: boolean): QueueItemDto[] {
     const validated = this.validateAvailableTrackIds(trackIds);
     const tx = this.db.raw.transaction(() => {
