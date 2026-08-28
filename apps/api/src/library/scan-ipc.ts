@@ -29,13 +29,21 @@ export interface ScanChunkItem {
   metadata: ParsedTrackMetadata | null;
 }
 
+export interface ScanChunkStats {
+  parsed: number;
+  unchanged: number;
+  durationFallback: number;
+}
+
 export interface ScanWorkerStartPayload {
   root: string;
   chunkSize: number;
   metadataConcurrency: number;
+  walkConcurrency: number;
   fsTimeoutMs: number;
   skipLrcOnUnchanged: boolean;
   skipUnchangedDirs: boolean;
+  durationMode: 'header_only' | 'full_fallback';
   completedGroups: string[];
   existingByPath: Record<string, { size_bytes: number; mtime_ms: number }>;
   dirMtimes: Record<string, number>;
@@ -43,7 +51,13 @@ export interface ScanWorkerStartPayload {
 
 export type ScanWorkerToHostMessage =
   | { type: 'progress'; processed: number; folder: { label: string; groupId: string; index: number; total: number; resuming?: boolean } }
-  | { type: 'chunk'; groupId: string; items: ScanChunkItem[]; folderComplete: boolean }
+  | {
+      type: 'chunk';
+      groupId: string;
+      items: ScanChunkItem[];
+      folderComplete: boolean;
+      stats: ScanChunkStats;
+    }
   | { type: 'dirStat'; relativePath: string; mtimeMs: number }
   | { type: 'walkError'; error: WalkErrorReport }
   | { type: 'dirSkipped'; groupId: string; seenPaths: string[] }

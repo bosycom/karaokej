@@ -25,6 +25,7 @@ export interface WalkedFile {
   sizeBytes: number;
   mtimeMs: number;
   format: AudioFormat;
+  hasLrc: boolean;
 }
 
 export interface ExistingTrackFingerprint {
@@ -122,10 +123,32 @@ export interface ScanProgressFolder {
   resuming?: boolean;
 }
 
+export function estimateScanRate(
+  processedSinceStart: number,
+  elapsedMs: number,
+): number | null {
+  if (processedSinceStart <= 0 || elapsedMs < 500) {
+    return null;
+  }
+  return processedSinceStart / (elapsedMs / 1000);
+}
+
+export function formatScanRate(filesPerSecond: number | null | undefined): string {
+  if (filesPerSecond == null || !Number.isFinite(filesPerSecond) || filesPerSecond <= 0) {
+    return '';
+  }
+  const rounded =
+    filesPerSecond >= 10
+      ? Math.round(filesPerSecond).toLocaleString()
+      : filesPerSecond.toFixed(1);
+  return ` · ~${rounded}/s`;
+}
+
 export function formatScanProgressMessage(
   folder: ScanProgressFolder,
   processed: number,
   skippedDirs = 0,
+  filesPerSecond?: number | null,
 ): string {
   const prefix = folder.resuming ? 'Resuming' : 'Scanning';
   const folderPart = `${prefix} ${folder.label} (${folder.index}/${folder.total})`;
@@ -135,7 +158,29 @@ export function formatScanProgressMessage(
     skippedDirs > 0
       ? ` · ${skippedDirs.toLocaleString()} ${skippedDirs === 1 ? 'dir' : 'dirs'} skipped`
       : '';
-  return `${folderPart}${countPart}${skipPart}`;
+  return `${folderPart}${countPart}${skipPart}${formatScanRate(filesPerSecond)}`;
+}
+
+export function formatPhase1ScanMessage(
+  folder: ScanProgressFolder | null,
+  processed: number,
+  skippedDirs = 0,
+  filesPerSecond?: number | null,
+): string {
+  const body = folder
+    ? formatScanProgressMessage(folder, processed, skippedDirs, filesPerSecond)
+    : processed > 0
+      ? `${processed.toLocaleString()} files${formatScanRate(filesPerSecond)}`
+      : 'Scanning library…';
+  return `Indexing paths (1/2) · ${body}`;
+}
+
+export function formatPhase2ScanMessage(
+  completed: number,
+  total: number,
+  filesPerSecond?: number | null,
+): string {
+  return `Reading tags (2/2) · ${completed.toLocaleString()}/${total.toLocaleString()} files${formatScanRate(filesPerSecond)}`;
 }
 
 export function formatScanCompleteMessage(

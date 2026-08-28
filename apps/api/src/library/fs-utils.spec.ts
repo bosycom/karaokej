@@ -3,8 +3,12 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  estimateScanRate,
+  formatPhase1ScanMessage,
+  formatPhase2ScanMessage,
   formatScanCompleteMessage,
   formatScanProgressMessage,
+  formatScanRate,
   isJunkDir,
   isUnchangedFile,
 } from './fs-utils';
@@ -18,7 +22,6 @@ import {
   seedSeenFromCompletedGroups,
 } from './scan-checkpoint';
 import {
-  checkLyricFileExists,
   RootReaddirError,
   walkAudioFileChunks,
 } from './scan-walker';
@@ -66,6 +69,52 @@ describe('formatScanProgressMessage', () => {
         1200,
       ),
     ).toBe('Resuming Rock (2/5) · 1,200 files');
+  });
+
+  it('appends an approximate files-per-second rate', () => {
+    expect(
+      formatScanProgressMessage(
+        { label: 'Rock', index: 2, total: 5 },
+        1200,
+        0,
+        85.4,
+      ),
+    ).toBe('Scanning Rock (2/5) · 1,200 files · ~85/s');
+  });
+});
+
+describe('estimateScanRate', () => {
+  it('returns null until enough time has elapsed', () => {
+    expect(estimateScanRate(40, 200)).toBeNull();
+    expect(estimateScanRate(0, 2000)).toBeNull();
+  });
+
+  it('divides processed files by elapsed seconds', () => {
+    expect(estimateScanRate(100, 2000)).toBe(50);
+  });
+});
+
+describe('formatScanRate', () => {
+  it('rounds large rates and keeps one decimal under 10', () => {
+    expect(formatScanRate(85.4)).toBe(' · ~85/s');
+    expect(formatScanRate(4.21)).toBe(' · ~4.2/s');
+    expect(formatScanRate(null)).toBe('');
+  });
+});
+
+describe('formatPhase1ScanMessage', () => {
+  it('prefixes phase one progress', () => {
+    expect(
+      formatPhase1ScanMessage({ label: 'Rock', index: 2, total: 5 }, 1200, 0, 85.4),
+    ).toBe('Indexing paths (1/2) · Scanning Rock (2/5) · 1,200 files · ~85/s');
+  });
+});
+
+describe('formatPhase2ScanMessage', () => {
+  it('shows tag phase progress', () => {
+    expect(formatPhase2ScanMessage(50, 200, 12.3)).toBe(
+      'Reading tags (2/2) · 50/200 files · ~12/s',
+    );
   });
 });
 
@@ -151,6 +200,28 @@ describe('walkAudioFileChunks', () => {
     expect(paths).not.toContain('.git/ignored.mp3');
   });
 
+  it('yields mid-folder when chunkSize is reached before the tree is fully walked', async () => {
+    const root = await makeRoot();
+    await mkdir(join(root, 'Many'), { recursive: true });
+    for (let i = 1; i <= 5; i += 1) {
+      await writeFile(join(root, 'Many', `song${i}.mp3`), `data-${i}`);
+    }
+
+    const chunkSizes: number[] = [];
+    for await (const batch of walkAudioFileChunks(root, {
+      chunkSize: 2,
+      completedGroups: new Set(['Jazz', 'Rock', '.']),
+    })) {
+      if (batch.files.length > 0) {
+        chunkSizes.push(batch.files.length);
+      }
+    }
+
+    expect(chunkSizes.length).toBeGreaterThan(1);
+    expect(chunkSizes.reduce((sum, size) => sum + size, 0)).toBe(5);
+    expect(Math.max(...chunkSizes)).toBeLessThanOrEqual(2);
+  });
+
   it('skips completed groups when resuming', async () => {
     const root = await makeRoot();
     await createLibraryTree(root);
@@ -194,15 +265,21 @@ describe('walkAudioFileChunks', () => {
     expect(isJunkDir('Rock')).toBe(false);
   });
 
-  it('does not treat a missing .lrc sidecar as a walk error', async () => {
+  it('detects .lrc sidecars from directory readdir without extra stat calls', async () => {
     const root = await makeRoot();
-    const audio = join(root, 'song.mp3');
-    await writeFile(audio, 'x');
-    const errors: string[] = [];
-    const exists = await checkLyricFileExists(audio, 1000, (error) => {
-      errors.push(error.path);
-    });
-    expect(exists).toBe(false);
-    expect(errors).toEqual([]);
+    await writeFile(join(root, 'song.mp3'), 'audio');
+    await writeFile(join(root, 'song.lrc'), 'lyrics');
+
+    const files: Array<{ relativePath: string; hasLrc: boolean }> = [];
+    for await (const batch of walkAudioFileChunks(root)) {
+      files.push(
+        ...batch.files.map((file) => ({
+          relativePath: file.relativePath,
+          hasLrc: file.hasLrc,
+        })),
+      );
+    }
+
+    expect(files).toEqual([{ relativePath: 'song.mp3', hasLrc: true }]);
   });
 });

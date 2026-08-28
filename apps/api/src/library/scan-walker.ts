@@ -1,6 +1,4 @@
 import { readdir, stat } from 'node:fs/promises';
-import { access } from 'node:fs/promises';
-import { constants } from 'node:fs';
 import { basename, extname, join, relative } from 'node:path';
 import {
   AUDIO_EXTENSIONS,
@@ -10,6 +8,7 @@ import {
   WalkedFile,
 } from './fs-utils';
 import { withFsOp } from './fs-timeout';
+import { mapWithConcurrency } from './scan-metadata';
 import { canSkipDirectoryByMtime } from './scan-checkpoint';
 import type { WalkErrorReport } from './scan-ipc';
 
@@ -25,6 +24,7 @@ export interface WalkAudioFileChunksOptions {
   shouldAbort?: () => boolean;
   chunkSize?: number;
   fsTimeoutMs?: number;
+  walkConcurrency?: number;
   onTopLevelFolder?: (progress: TopLevelFolderProgress) => void;
   onWalkError?: (error: WalkErrorReport) => void;
   completedGroups?: Set<string>;
@@ -42,29 +42,55 @@ export class RootReaddirError extends Error {
   }
 }
 
-async function collectAudioFile(
+interface PendingAudioFile {
+  full: string;
+  ext: string;
+  name: string;
+}
+
+function lrcStemsFromEntries(
+  entries: Array<{ name: string; isFile(): boolean }>,
+): Set<string> {
+  const stems = new Set<string>();
+  for (const entry of entries) {
+    if (!entry.isFile()) {
+      continue;
+    }
+    if (entry.name.toLowerCase().endsWith('.lrc')) {
+      stems.add(entry.name.slice(0, -4).toLowerCase());
+    }
+  }
+  return stems;
+}
+
+function audioStem(filename: string): string {
+  const ext = extname(filename);
+  return filename.slice(0, filename.length - ext.length).toLowerCase();
+}
+
+async function statAudioFile(
   libraryRoot: string,
-  full: string,
-  ext: string,
-  fsTimeoutMs: number,
+  pending: PendingAudioFile,
+  lrcStems: Set<string>,
   onWalkError?: (error: WalkErrorReport) => void,
 ): Promise<WalkedFile | null> {
-  const format = AUDIO_EXTENSIONS[ext];
+  const format = AUDIO_EXTENSIONS[pending.ext];
   if (!format) {
     return null;
   }
   try {
-    const info = await withFsOp(`stat ${full}`, fsTimeoutMs, () => stat(full));
+    const info = await stat(pending.full);
     return {
-      absolutePath: full,
-      relativePath: relative(libraryRoot, full),
+      absolutePath: pending.full,
+      relativePath: relative(libraryRoot, pending.full),
       sizeBytes: info.size,
       mtimeMs: Math.floor(info.mtimeMs),
       format,
+      hasLrc: lrcStems.has(audioStem(pending.name)),
     };
   } catch (err) {
     onWalkError?.({
-      path: full,
+      path: pending.full,
       op: 'stat',
       message: err instanceof Error ? err.message : String(err),
     });
@@ -72,64 +98,117 @@ async function collectAudioFile(
   }
 }
 
-async function visitDirectory(
+async function statAudioFilesParallel(
   libraryRoot: string,
-  dir: string,
-  buffer: WalkedFile[],
+  pending: PendingAudioFile[],
+  lrcStems: Set<string>,
+  walkConcurrency: number,
+  onWalkError?: (error: WalkErrorReport) => void,
+): Promise<WalkedFile[]> {
+  if (pending.length === 0) {
+    return [];
+  }
+  const walked = await mapWithConcurrency(
+    pending,
+    walkConcurrency,
+    async (entry) => statAudioFile(libraryRoot, entry, lrcStems, onWalkError),
+  );
+  return walked.filter((file): file is WalkedFile => file != null);
+}
+
+async function* walkGroupFiles(
+  libraryRoot: string,
+  groupDir: string | null,
+  seed: WalkedFile[],
   options: WalkAudioFileChunksOptions,
-): Promise<void> {
+): AsyncGenerator<WalkedFile[]> {
   const {
     shouldAbort,
-    fsTimeoutMs = 15000,
+    chunkSize = 1000,
+    walkConcurrency = 8,
     onWalkError,
   } = options;
 
-  if (shouldAbort?.()) {
+  const buffer: WalkedFile[] = [...seed];
+
+  const flushIfFull = function* (): Generator<WalkedFile[]> {
+    while (buffer.length >= chunkSize) {
+      yield buffer.splice(0, chunkSize);
+    }
+  };
+
+  for (const chunk of flushIfFull()) {
+    yield chunk;
+  }
+
+  if (!groupDir) {
+    if (buffer.length > 0) {
+      yield buffer.splice(0, buffer.length);
+    }
     return;
   }
 
-  let entries;
-  try {
-    entries = await withFsOp(`readdir ${dir}`, fsTimeoutMs, () =>
-      readdir(dir, { withFileTypes: true }),
-    );
-  } catch (err) {
-    onWalkError?.({
-      path: dir,
-      op: 'readdir',
-      message: err instanceof Error ? err.message : String(err),
-    });
-    return;
-  }
+  const stack: string[] = [groupDir];
 
-  for (const entry of entries) {
+  while (stack.length > 0) {
     if (shouldAbort?.()) {
       return;
     }
-    if (entry.name.startsWith('._')) {
+
+    const dir = stack.pop()!;
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch (err) {
+      onWalkError?.({
+        path: dir,
+        op: 'readdir',
+        message: err instanceof Error ? err.message : String(err),
+      });
       continue;
     }
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      if (!isJunkDir(entry.name)) {
-        await visitDirectory(libraryRoot, full, buffer, options);
+
+    const lrcStems = lrcStemsFromEntries(entries);
+    const pending: PendingAudioFile[] = [];
+    for (const entry of entries) {
+      if (shouldAbort?.()) {
+        return;
       }
-      continue;
+      if (entry.name.startsWith('._')) {
+        continue;
+      }
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (!isJunkDir(entry.name)) {
+          stack.push(full);
+        }
+        continue;
+      }
+      if (!entry.isFile()) {
+        continue;
+      }
+      const ext = extname(entry.name).toLowerCase();
+      if (AUDIO_EXTENSIONS[ext]) {
+        pending.push({ full, ext, name: entry.name });
+      }
     }
-    if (!entry.isFile()) {
-      continue;
-    }
-    const ext = extname(entry.name).toLowerCase();
-    const walked = await collectAudioFile(
+
+    const walked = await statAudioFilesParallel(
       libraryRoot,
-      full,
-      ext,
-      fsTimeoutMs,
+      pending,
+      lrcStems,
+      walkConcurrency,
       onWalkError,
     );
-    if (walked) {
-      buffer.push(walked);
+    buffer.push(...walked);
+
+    for (const chunk of flushIfFull()) {
+      yield chunk;
     }
+  }
+
+  if (buffer.length > 0) {
+    yield buffer.splice(0, buffer.length);
   }
 }
 
@@ -143,7 +222,6 @@ async function trySkipDirectoryGroup(
     skipUnchangedDirs,
     dirMtimes,
     existingByPath,
-    fsTimeoutMs = 15000,
     onWalkError,
     onDirStat,
     onDirSkipped,
@@ -155,7 +233,7 @@ async function trySkipDirectoryGroup(
 
   let info;
   try {
-    info = await withFsOp(`stat ${absoluteDir}`, fsTimeoutMs, () => stat(absoluteDir));
+    info = await stat(absoluteDir);
   } catch (err) {
     onWalkError?.({
       path: absoluteDir,
@@ -189,8 +267,8 @@ export async function* walkAudioFileChunks(
 ): AsyncGenerator<{ groupId: string; files: WalkedFile[]; folderComplete: boolean }> {
   const {
     shouldAbort,
-    chunkSize = 1000,
     fsTimeoutMs = 15000,
+    walkConcurrency = 8,
     onTopLevelFolder,
     onWalkError,
     completedGroups,
@@ -208,7 +286,8 @@ export async function* walkAudioFileChunks(
   }
 
   const rootLabel = basename(libraryRoot) || libraryRoot;
-  const rootAudioFiles: WalkedFile[] = [];
+  const rootLrcStems = lrcStemsFromEntries(rootEntries);
+  const rootPending: PendingAudioFile[] = [];
   const topLevelDirs: string[] = [];
 
   for (const entry of rootEntries) {
@@ -229,17 +308,18 @@ export async function* walkAudioFileChunks(
       continue;
     }
     const ext = extname(entry.name).toLowerCase();
-    const walked = await collectAudioFile(
-      libraryRoot,
-      full,
-      ext,
-      fsTimeoutMs,
-      onWalkError,
-    );
-    if (walked) {
-      rootAudioFiles.push(walked);
+    if (AUDIO_EXTENSIONS[ext]) {
+      rootPending.push({ full, ext, name: entry.name });
     }
   }
+
+  const rootAudioFiles = await statAudioFilesParallel(
+    libraryRoot,
+    rootPending,
+    rootLrcStems,
+    walkConcurrency,
+    onWalkError,
+  );
 
   topLevelDirs.sort((a, b) => a.localeCompare(b));
   const groups: Array<{
@@ -294,16 +374,21 @@ export async function* walkAudioFileChunks(
       }
     }
 
-    const buffer = [...group.seed];
-    if (group.dir) {
-      await visitDirectory(libraryRoot, group.dir, buffer, options);
+    for await (const chunk of walkGroupFiles(
+      libraryRoot,
+      group.dir,
+      group.seed,
+      options,
+    )) {
       if (shouldAbort?.()) {
         return;
       }
+      yield { groupId: group.groupId, files: chunk, folderComplete: false };
+    }
+
+    if (group.dir) {
       try {
-        const info = await withFsOp(`stat ${group.dir}`, fsTimeoutMs, () =>
-          stat(group.dir!),
-        );
+        const info = await stat(group.dir);
         options.onDirStat?.(
           relative(libraryRoot, group.dir),
           Math.floor(info.mtimeMs),
@@ -317,46 +402,7 @@ export async function* walkAudioFileChunks(
       }
     }
 
-    for (let offset = 0; offset < buffer.length; offset += chunkSize) {
-      if (shouldAbort?.()) {
-        return;
-      }
-      const slice = buffer.slice(offset, offset + chunkSize);
-      const folderComplete = offset + chunkSize >= buffer.length;
-      yield { groupId: group.groupId, files: slice, folderComplete };
-    }
-
-    if (buffer.length === 0) {
-      yield { groupId: group.groupId, files: [], folderComplete: true };
-    }
-  }
-}
-
-export async function checkLyricFileExists(
-  absolutePath: string,
-  fsTimeoutMs: number,
-  onWalkError?: (error: WalkErrorReport) => void,
-): Promise<boolean> {
-  const ext = extname(absolutePath);
-  const lrcPath = absolutePath.slice(0, absolutePath.length - ext.length) + '.lrc';
-  try {
-    await withFsOp(`exists ${lrcPath}`, fsTimeoutMs, () =>
-      access(lrcPath, constants.F_OK),
-    );
-    return true;
-  } catch (err) {
-    const code =
-      err && typeof err === 'object' && 'code' in err
-        ? String((err as { code: unknown }).code)
-        : '';
-    if (code !== 'ENOENT') {
-      onWalkError?.({
-        path: lrcPath,
-        op: 'exists',
-        message: err instanceof Error ? err.message : String(err),
-      });
-    }
-    return false;
+    yield { groupId: group.groupId, files: [], folderComplete: true };
   }
 }
 

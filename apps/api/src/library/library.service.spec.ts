@@ -115,4 +115,27 @@ describe('LibraryService.search', () => {
     expect(page.total).toBe(1);
     expect(page.items[0]!.id).toBe(firstId);
   });
+
+  it('does not collapse pending path-only rows when hiding duplicates', () => {
+    insertTrack(db, {
+      relativePath: 'a/song.mp3',
+      title: 'Same Song',
+      artist: 'Artist',
+      format: 'mp3',
+      durationMs: null,
+      metadataStatus: 'pending',
+    });
+    insertTrack(db, {
+      relativePath: 'a/song.opus',
+      title: 'Same Song',
+      artist: 'Artist',
+      format: 'opus',
+      durationMs: 180_000,
+      metadataStatus: 'ready',
+    });
+
+    const page = library.search('', 1, 50, undefined, true);
+    expect(page.total).toBe(2);
+    expect(page.items).toHaveLength(2);
+  });
 });

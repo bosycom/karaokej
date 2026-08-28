@@ -22,6 +22,7 @@ export class StreamService {
     if (!track) {
       throw new NotFoundException('Track not found');
     }
+    this.library.backfillDurationIfMissing(trackId);
     const absolute = this.config.resolveUnderLibrary(track.relative_path);
     if (!absolute || !existsSync(absolute)) {
       throw new NotFoundException('Audio file is missing from the library');

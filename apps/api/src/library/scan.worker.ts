@@ -1,15 +1,11 @@
 import { parentPort } from 'node:worker_threads';
-import { existsSync } from 'node:fs';
-import { extname } from 'node:path';
-import { lyricPathFor } from './fs-utils';
-import { mapWithConcurrency, readTrackMetadata } from './scan-metadata';
 import {
-  checkLyricFileExists,
   isFileUnchangedInCatalogue,
   walkAudioFileChunks,
 } from './scan-walker';
 import type {
   ScanChunkItem,
+  ScanChunkStats,
   ScanWorkerFromHostMessage,
   ScanWorkerStartPayload,
   ScanWorkerToHostMessage,
@@ -27,7 +23,7 @@ function reportWalkError(error: WalkErrorReport): void {
   post({ type: 'walkError', error });
 }
 
-async function processChunkItems(
+function processChunkItems(
   payload: ScanWorkerStartPayload,
   files: Array<{
     absolutePath: string;
@@ -35,57 +31,37 @@ async function processChunkItems(
     sizeBytes: number;
     mtimeMs: number;
     format: ScanChunkItem['format'];
+    hasLrc: boolean;
   }>,
   existingByPath: Map<string, { size_bytes: number; mtime_ms: number }>,
-): Promise<ScanChunkItem[]> {
-  const changed = files.filter(
-    (file) => !isFileUnchangedInCatalogue(file, existingByPath),
-  );
-
-  const metadataByPath = new Map<string, Awaited<ReturnType<typeof readTrackMetadata>>>();
-  if (changed.length > 0) {
-    const parsed = await mapWithConcurrency(
-      changed,
-      payload.metadataConcurrency,
-      async (file) => ({
-        relativePath: file.relativePath,
-        metadata: await readTrackMetadata(
-          file.absolutePath,
-          file.relativePath,
-          payload.fsTimeoutMs,
-        ),
-      }),
-    );
-    for (const entry of parsed) {
-      metadataByPath.set(entry.relativePath, entry.metadata);
-    }
-  }
-
+): { items: ScanChunkItem[]; stats: ScanChunkStats } {
+  const stats: ScanChunkStats = {
+    parsed: 0,
+    unchanged: 0,
+    durationFallback: 0,
+  };
   const items: ScanChunkItem[] = [];
+
   for (const file of files) {
     const unchanged = isFileUnchangedInCatalogue(file, existingByPath);
-    let hasLrc: boolean | null = null;
-    if (!unchanged || !payload.skipLrcOnUnchanged) {
-      if (payload.fsTimeoutMs > 0) {
-        hasLrc = await checkLyricFileExists(
-          file.absolutePath,
-          payload.fsTimeoutMs,
-          reportWalkError,
-        );
-      } else {
-        hasLrc = existsSync(lyricPathFor(file.absolutePath));
-      }
+    const hasLrc =
+      unchanged && payload.skipLrcOnUnchanged ? null : file.hasLrc;
+
+    if (unchanged) {
+      stats.unchanged += 1;
+    } else {
+      stats.parsed += 1;
     }
 
     items.push({
       ...file,
       unchanged,
       hasLrc,
-      metadata: unchanged ? null : metadataByPath.get(file.relativePath) ?? null,
+      metadata: null,
     });
   }
 
-  return items;
+  return { items, stats };
 }
 
 async function runScan(payload: ScanWorkerStartPayload): Promise<void> {
@@ -108,6 +84,7 @@ async function runScan(payload: ScanWorkerStartPayload): Promise<void> {
     for await (const batch of walkAudioFileChunks(payload.root, {
       chunkSize: payload.chunkSize,
       fsTimeoutMs: payload.fsTimeoutMs,
+      walkConcurrency: payload.walkConcurrency,
       shouldAbort: () => cancelRequested,
       completedGroups,
       skipUnchangedDirs: payload.skipUnchangedDirs,
@@ -151,17 +128,23 @@ async function runScan(payload: ScanWorkerStartPayload): Promise<void> {
           groupId: batch.groupId,
           items: [],
           folderComplete: true,
+          stats: { parsed: 0, unchanged: 0, durationFallback: 0 },
         });
         continue;
       }
 
-      const items = await processChunkItems(payload, batch.files, existingByPath);
+      const { items, stats } = processChunkItems(
+        payload,
+        batch.files,
+        existingByPath,
+      );
       processed += items.length;
       post({
         type: 'chunk',
         groupId: batch.groupId,
         items,
         folderComplete: batch.folderComplete,
+        stats,
       });
       if (currentFolder) {
         post({

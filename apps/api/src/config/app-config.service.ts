@@ -59,7 +59,16 @@ export class AppConfigService {
   get scanMetadataConcurrency(): number {
     return clampInt(
       this.config.get<string>('LIBRARY_SCAN_METADATA_CONCURRENCY'),
-      4,
+      8,
+      1,
+      8,
+    );
+  }
+
+  get scanWalkConcurrency(): number {
+    return clampInt(
+      this.config.get<string>('LIBRARY_SCAN_WALK_CONCURRENCY'),
+      this.scanMetadataConcurrency,
       1,
       8,
     );
@@ -80,6 +89,14 @@ export class AppConfigService {
 
   get scanSkipLrcOnUnchanged(): boolean {
     return envFlag(this.config.get<string>('LIBRARY_SCAN_SKIP_LRC_ON_UNCHANGED'));
+  }
+
+  get scanDurationMode(): 'header_only' | 'full_fallback' {
+    const raw = this.config
+      .get<string>('LIBRARY_SCAN_DURATION_MODE')
+      ?.trim()
+      .toLowerCase();
+    return raw === 'header_only' ? 'header_only' : 'full_fallback';
   }
 
   resolveUnderLibrary(relativePath: string): string | null {

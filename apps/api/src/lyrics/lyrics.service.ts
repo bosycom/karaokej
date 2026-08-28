@@ -91,6 +91,7 @@ export class LyricsService {
       .prepare(
         `SELECT * FROM tracks
          WHERE available = 1
+           AND metadata_status = 'ready'
            AND (lyric_status IN ('missing', 'error')
             OR (lyric_status = 'not_found' AND (lyric_checked_at IS NULL OR lyric_checked_at < ?)))
          ORDER BY artist COLLATE NOCASE, title COLLATE NOCASE`,
@@ -144,6 +145,9 @@ export class LyricsService {
   }
 
   async fetchOne(track: TrackRow): Promise<void> {
+    if (track.metadata_status === 'pending') {
+      return;
+    }
     const absolute = this.config.resolveUnderLibrary(track.relative_path);
     if (!absolute) {
       this.updateLyricState(track.id, 'error', null, null);
