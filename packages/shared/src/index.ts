@@ -193,6 +193,10 @@ export interface RandomArtistDto {
 
 export interface AppSettingsDto {
   removePlayedFromQueue: boolean;
+  /** 0 = off, 1–10 = crossfade duration in seconds */
+  crossfadeSeconds: number;
+  /** Last non-zero crossfade duration used when toggling back on from the player bar */
+  crossfadePrefSeconds: number;
 }
 
 export interface SessionStateDto {

@@ -143,5 +143,15 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
         `INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, ?)`,
       )
       .run('karaoke_mode', 'off');
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, ?)`,
+      )
+      .run('crossfade_seconds', '0');
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, ?)`,
+      )
+      .run('crossfade_seconds_pref', '5');
   }
 }

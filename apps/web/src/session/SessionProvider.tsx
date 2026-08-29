@@ -10,6 +10,7 @@ import {
 } from 'react';
 import {
   LyricsDto,
+  QueueItemDto,
   SessionStateDto,
   TrackDto,
   WsServerMessage,
@@ -17,6 +18,16 @@ import {
 import { api, emptySession, wsUrl } from '../api';
 import { planSourceSwap, resolveAudioSrc } from '../audio/resolveAudioSrc';
 import { getKaraokeEngine } from '../audio/karaokeEngine';
+import {
+  crossfadeGains,
+  incomingTrackSrc,
+  nextQueueItem,
+  shouldPromoteCrossfade,
+  shouldStartCrossfade,
+  trackRemainingMs,
+  type CrossfadeState,
+} from '../player/crossfade';
+import { seekBarDurationLabelMs } from '../player/seekBar';
 
 const CLIENT_KEY = 'karaokej.clientId';
 
@@ -72,16 +83,165 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [positionMs, setPositionMs] = useState(0);
   const [liveAudioDurationMs, setLiveAudioDurationMs] = useState(0);
   const [lyrics, setLyrics] = useState<LyricsDto | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioARef = useRef<HTMLAudioElement | null>(null);
+  const audioBRef = useRef<HTMLAudioElement | null>(null);
+  const primaryIsARef = useRef(true);
   const karaokeEngineRef = useRef(getKaraokeEngine());
   const lastSeekSeq = useRef(-1);
   const lastTrackId = useRef<number | null>(null);
   const lastAppliedSrc = useRef<string | null>(null);
   const applyingRemote = useRef(false);
   const checkpointTimer = useRef<number | null>(null);
+  const crossfadeRef = useRef<CrossfadeState | null>(null);
+  const pendingPromoteRef = useRef(false);
+  const stateRef = useRef(state);
+  const liveAudioDurationMsRef = useRef(liveAudioDurationMs);
+
+  stateRef.current = state;
+  liveAudioDurationMsRef.current = liveAudioDurationMs;
 
   const isPlayer = state.playback.playerClientId === clientId;
   const currentTrack = state.playback.currentTrack;
+
+  const getPrimary = useCallback((): HTMLAudioElement | null => {
+    return primaryIsARef.current ? audioARef.current : audioBRef.current;
+  }, []);
+
+  const getIncoming = useCallback((): HTMLAudioElement | null => {
+    return primaryIsARef.current ? audioBRef.current : audioARef.current;
+  }, []);
+
+  const swapPrimaryIncoming = useCallback(() => {
+    primaryIsARef.current = !primaryIsARef.current;
+  }, []);
+
+  const clearIncomingElement = useCallback((incoming: HTMLAudioElement | null) => {
+    if (!incoming) {
+      return;
+    }
+    incoming.pause();
+    incoming.removeAttribute('src');
+    incoming.load();
+  }, []);
+
+  const cancelCrossfade = useCallback(() => {
+    const primary = getPrimary();
+    const incoming = getIncoming();
+    crossfadeRef.current = null;
+    pendingPromoteRef.current = false;
+    clearIncomingElement(incoming);
+    if (primary) {
+      primary.volume = stateRef.current.playback.volume;
+    }
+  }, [clearIncomingElement, getIncoming, getPrimary]);
+
+  const applyCrossfadeVolumes = useCallback(
+    (remainingMs: number, overlapStartRemainingMs: number) => {
+      const primary = getPrimary();
+      const incoming = getIncoming();
+      if (!primary || !incoming || !crossfadeRef.current?.active) {
+        return;
+      }
+      const master = stateRef.current.playback.volume;
+      const { outgoing, incoming: incomingGain } = crossfadeGains(
+        remainingMs,
+        overlapStartRemainingMs,
+      );
+      primary.volume = master * outgoing;
+      incoming.volume = master * incomingGain;
+    },
+    [getIncoming, getPrimary],
+  );
+
+  const startCrossfade = useCallback(
+    (nextItem: QueueItemDto, remainingMs: number) => {
+      const primary = getPrimary();
+      const incoming = getIncoming();
+      if (!primary || !incoming || crossfadeRef.current?.active) {
+        return;
+      }
+
+      const src = incomingTrackSrc(nextItem.track);
+      incoming.src = src;
+      incoming.load();
+      incoming.currentTime = 0;
+
+      const playIncoming = () => {
+        if (stateRef.current.playback.status === 'playing') {
+          void incoming.play().catch(() => undefined);
+        }
+        applyCrossfadeVolumes(remainingMs, remainingMs);
+      };
+
+      crossfadeRef.current = {
+        active: true,
+        incomingTrackId: nextItem.track.id,
+        incomingQueueItemId: nextItem.id,
+        overlapStartRemainingMs: remainingMs,
+      };
+
+      if (incoming.readyState >= 1) {
+        playIncoming();
+      } else {
+        incoming.addEventListener('loadedmetadata', playIncoming, { once: true });
+      }
+    },
+    [applyCrossfadeVolumes, getIncoming, getPrimary],
+  );
+
+  const maybeUpdateCrossfade = useCallback(() => {
+    const session = stateRef.current;
+    if (!isPlayer || session.playback.status !== 'playing') {
+      return;
+    }
+
+    const primary = getPrimary();
+    if (!primary || primary.paused) {
+      return;
+    }
+
+    const enabledSeconds = session.settings.crossfadeSeconds;
+    const trackDurationMs = session.playback.currentTrack?.durationMs ?? 0;
+    const durationMs = seekBarDurationLabelMs({
+      trackDurationMs,
+      liveAudioDurationMs: liveAudioDurationMsRef.current,
+    });
+    const positionMs = primary.currentTime * 1000;
+    const remainingMs = trackRemainingMs(durationMs, positionMs);
+    const crossfade = crossfadeRef.current;
+
+    if (crossfade?.active) {
+      const nextStillQueued = session.queue.some(
+        (item) => item.id === crossfade.incomingQueueItemId,
+      );
+      if (!nextStillQueued || enabledSeconds <= 0) {
+        cancelCrossfade();
+        return;
+      }
+      applyCrossfadeVolumes(remainingMs, crossfade.overlapStartRemainingMs);
+      return;
+    }
+
+    const nextItem = nextQueueItem(session.queue, session.playback.currentQueueItemId);
+    if (
+      shouldStartCrossfade({
+        enabledSeconds,
+        remainingMs,
+        hasNext: nextItem != null,
+        alreadyFading: false,
+        playing: true,
+      }) &&
+      nextItem
+    ) {
+      startCrossfade(nextItem, remainingMs);
+    }
+  }, [
+    applyCrossfadeVolumes,
+    cancelCrossfade,
+    getPrimary,
+    isPlayer,
+    startCrossfade,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -156,27 +316,81 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [currentTrack?.id, currentTrack?.lyricStatus]);
 
   const applyPlayback = useCallback(async () => {
-    const audio = audioRef.current;
-    if (!audio) {
+    const primary = getPrimary();
+    if (!primary) {
       return;
     }
+
     if (!isPlayer || !currentTrack) {
-      audio.pause();
+      cancelCrossfade();
+      primary.pause();
       if (!isPlayer) {
-        audio.removeAttribute('src');
-        audio.load();
+        primary.removeAttribute('src');
+        primary.load();
+        clearIncomingElement(getIncoming());
       }
       setPositionMs(state.playback.positionMs);
       return;
     }
 
-    const nextSrc = resolveAudioSrc(currentTrack, state.karaoke);
     const trackChanged = lastTrackId.current !== currentTrack.id;
+    const seekChanged = lastSeekSeq.current !== state.playback.seekSeq;
+    const promote =
+      pendingPromoteRef.current &&
+      shouldPromoteCrossfade({
+        crossfade: crossfadeRef.current,
+        trackChanged,
+        currentTrackId: currentTrack.id,
+      });
+
+    if (promote) {
+      pendingPromoteRef.current = false;
+      swapPrimaryIncoming();
+      const newPrimary = getPrimary();
+      const newIncoming = getIncoming();
+      if (!newPrimary) {
+        return;
+      }
+
+      clearIncomingElement(newIncoming);
+      crossfadeRef.current = null;
+      karaokeEngineRef.current.bind(newPrimary);
+
+      lastTrackId.current = currentTrack.id;
+      lastAppliedSrc.current = resolveAudioSrc(currentTrack, state.karaoke);
+      lastSeekSeq.current = state.playback.seekSeq;
+      applyingRemote.current = false;
+
+      newPrimary.volume = state.playback.volume;
+      setLiveAudioDurationMs(
+        Number.isFinite(newPrimary.duration) && newPrimary.duration > 0
+          ? Math.round(newPrimary.duration * 1000)
+          : 0,
+      );
+      setPositionMs(newPrimary.currentTime * 1000);
+
+      if (state.playback.status === 'playing' && newPrimary.paused) {
+        try {
+          await newPrimary.play();
+        } catch {
+          /* autoplay may be blocked until a click */
+        }
+      } else if (state.playback.status !== 'playing') {
+        newPrimary.pause();
+      }
+      return;
+    }
+
+    if (crossfadeRef.current?.active && (seekChanged || trackChanged)) {
+      cancelCrossfade();
+    }
+
+    const nextSrc = resolveAudioSrc(currentTrack, state.karaoke);
     const swapPlan = planSourceSwap({
       currentSrc: lastAppliedSrc.current ?? '',
       nextSrc,
-      currentTime: audio.currentTime,
-      paused: audio.paused,
+      currentTime: primary.currentTime,
+      paused: primary.paused,
     });
 
     if (trackChanged || swapPlan.shouldSwap) {
@@ -186,78 +400,118 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       if (trackChanged) {
         setLiveAudioDurationMs(0);
       }
-      audio.src = nextSrc;
-      audio.load();
+      primary.src = nextSrc;
+      primary.load();
 
       if (!trackChanged && swapPlan.restoreTo != null) {
         const restoreTo = swapPlan.restoreTo;
         const resume = swapPlan.resumePlayback;
         const restore = () => {
           try {
-            audio.currentTime = restoreTo;
+            primary.currentTime = restoreTo;
           } catch {
             /* not ready */
           }
           applyingRemote.current = false;
           if (resume && state.playback.status === 'playing') {
-            void audio.play().catch(() => undefined);
+            void primary.play().catch(() => undefined);
           }
         };
-        if (audio.readyState >= 1) {
+        if (primary.readyState >= 1) {
           restore();
         } else {
-          audio.addEventListener('loadedmetadata', restore, { once: true });
+          primary.addEventListener('loadedmetadata', restore, { once: true });
         }
       }
     }
 
-    if (trackChanged || lastSeekSeq.current !== state.playback.seekSeq) {
+    if (trackChanged || seekChanged) {
       lastSeekSeq.current = state.playback.seekSeq;
       applyingRemote.current = true;
       setPositionMs(state.playback.positionMs);
       const target = state.playback.positionMs / 1000;
       const seek = () => {
         try {
-          audio.currentTime = target;
+          primary.currentTime = target;
         } catch {
           /* not ready */
         }
         applyingRemote.current = false;
-        setPositionMs(audio.currentTime * 1000);
+        setPositionMs(primary.currentTime * 1000);
+        maybeUpdateCrossfade();
       };
-      if (audio.readyState >= 1) {
+      if (primary.readyState >= 1) {
         seek();
       } else {
-        audio.addEventListener('loadedmetadata', seek, { once: true });
+        primary.addEventListener('loadedmetadata', seek, { once: true });
       }
     }
 
-    audio.volume = state.playback.volume;
+    if (!crossfadeRef.current?.active) {
+      primary.volume = state.playback.volume;
+    } else {
+      const trackDurationMs = currentTrack.durationMs ?? 0;
+      const durationMs = seekBarDurationLabelMs({
+        trackDurationMs,
+        liveAudioDurationMs: liveAudioDurationMsRef.current,
+      });
+      const remainingMs = trackRemainingMs(durationMs, primary.currentTime * 1000);
+      applyCrossfadeVolumes(
+        remainingMs,
+        crossfadeRef.current.overlapStartRemainingMs,
+      );
+    }
+
+    const incoming = getIncoming();
     if (state.playback.status === 'playing') {
       try {
-        await audio.play();
+        await primary.play();
+        if (crossfadeRef.current?.active && incoming?.paused) {
+          void incoming.play().catch(() => undefined);
+        }
       } catch {
         /* autoplay may be blocked until a click */
       }
     } else {
-      audio.pause();
+      primary.pause();
+      if (crossfadeRef.current?.active) {
+        incoming?.pause();
+      }
     }
-  }, [isPlayer, currentTrack, state.karaoke, state.playback]);
+  }, [
+    applyCrossfadeVolumes,
+    cancelCrossfade,
+    clearIncomingElement,
+    currentTrack,
+    getIncoming,
+    getPrimary,
+    isPlayer,
+    maybeUpdateCrossfade,
+    state.karaoke,
+    state.playback,
+    swapPrimaryIncoming,
+  ]);
 
   useEffect(() => {
     void applyPlayback();
   }, [applyPlayback]);
 
   useEffect(() => {
-    const audio = audioRef.current;
+    if (state.settings.crossfadeSeconds <= 0) {
+      cancelCrossfade();
+    }
+  }, [cancelCrossfade, state.settings.crossfadeSeconds]);
+
+  useEffect(() => {
+    const primary = getPrimary();
     const engine = karaokeEngineRef.current;
-    if (audio) {
-      engine.bind(audio);
+    if (primary) {
+      engine.bind(primary);
     }
     if (isPlayer) {
       engine.applyState(state.karaoke, currentTrack);
     }
-  }, [isPlayer, state.karaoke, currentTrack]);
+  }, [currentTrack, getPrimary, isPlayer, state.karaoke]);
 
   useEffect(() => {
     return () => {
@@ -266,8 +520,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) {
+    const primary = getPrimary();
+    if (!primary) {
       return;
     }
 
@@ -275,35 +529,39 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       if (!isPlayer) {
         return;
       }
-      setPositionMs(audio.currentTime * 1000);
+      setPositionMs(primary.currentTime * 1000);
+      maybeUpdateCrossfade();
     };
     const syncDuration = () => {
-      if (!isPlayer || !Number.isFinite(audio.duration) || audio.duration <= 0) {
+      if (!isPlayer || !Number.isFinite(primary.duration) || primary.duration <= 0) {
         setLiveAudioDurationMs(0);
         return;
       }
-      setLiveAudioDurationMs(Math.round(audio.duration * 1000));
+      setLiveAudioDurationMs(Math.round(primary.duration * 1000));
     };
     const onEnded = () => {
       if (isPlayer) {
+        if (crossfadeRef.current?.active) {
+          pendingPromoteRef.current = true;
+        }
         void api.ended(clientId);
       }
     };
 
-    audio.addEventListener('timeupdate', syncPosition);
-    audio.addEventListener('seeked', syncPosition);
-    audio.addEventListener('loadedmetadata', syncDuration);
-    audio.addEventListener('durationchange', syncDuration);
-    audio.addEventListener('ended', onEnded);
+    primary.addEventListener('timeupdate', syncPosition);
+    primary.addEventListener('seeked', syncPosition);
+    primary.addEventListener('loadedmetadata', syncDuration);
+    primary.addEventListener('durationchange', syncDuration);
+    primary.addEventListener('ended', onEnded);
     syncDuration();
     return () => {
-      audio.removeEventListener('timeupdate', syncPosition);
-      audio.removeEventListener('seeked', syncPosition);
-      audio.removeEventListener('loadedmetadata', syncDuration);
-      audio.removeEventListener('durationchange', syncDuration);
-      audio.removeEventListener('ended', onEnded);
+      primary.removeEventListener('timeupdate', syncPosition);
+      primary.removeEventListener('seeked', syncPosition);
+      primary.removeEventListener('loadedmetadata', syncDuration);
+      primary.removeEventListener('durationchange', syncDuration);
+      primary.removeEventListener('ended', onEnded);
     };
-  }, [isPlayer, clientId]);
+  }, [clientId, getPrimary, isPlayer, maybeUpdateCrossfade]);
 
   useEffect(() => {
     if (!isPlayer) {
@@ -320,18 +578,25 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
 
     checkpointTimer.current = window.setInterval(() => {
-      const audio = audioRef.current;
-      if (!audio || audio.paused || applyingRemote.current) {
+      const primary = getPrimary();
+      if (!primary || primary.paused || applyingRemote.current) {
         return;
       }
-      void api.checkpoint(Math.round(audio.currentTime * 1000), clientId);
+      void api.checkpoint(Math.round(primary.currentTime * 1000), clientId);
     }, 1000);
     return () => {
       if (checkpointTimer.current) {
         window.clearInterval(checkpointTimer.current);
       }
     };
-  }, [isPlayer, clientId, state.playback.status, state.playback.positionMs, state.playback.seekSeq]);
+  }, [
+    clientId,
+    getPrimary,
+    isPlayer,
+    state.playback.positionMs,
+    state.playback.seekSeq,
+    state.playback.status,
+  ]);
 
   const value = useMemo<SessionContextValue>(
     () => ({
@@ -348,7 +613,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   return (
     <SessionContext.Provider value={value}>
-      <audio ref={audioRef} preload="metadata" />
+      <audio ref={audioARef} preload="metadata" />
+      <audio ref={audioBRef} preload="metadata" hidden />
       {children}
     </SessionContext.Provider>
   );

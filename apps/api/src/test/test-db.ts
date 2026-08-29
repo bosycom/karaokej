@@ -116,6 +116,12 @@ export class TestDbService {
     this.raw
       .prepare(`INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, ?)`)
       .run('karaoke_mode', 'off');
+    this.raw
+      .prepare(`INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, ?)`)
+      .run('crossfade_seconds', '0');
+    this.raw
+      .prepare(`INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, ?)`)
+      .run('crossfade_seconds_pref', '5');
   }
 
   close(): void {

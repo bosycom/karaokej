@@ -49,6 +49,18 @@ export function SettingsPage() {
     });
   };
 
+  const handleCrossfadeChange = (seconds: number) => {
+    setSettingsError(null);
+    void api.patchSettings({ crossfadeSeconds: seconds }).catch((err) => {
+      setSettingsError(err instanceof Error ? err.message : String(err));
+    });
+  };
+
+  const crossfadeLabel =
+    state.settings.crossfadeSeconds === 0
+      ? 'Off'
+      : `${state.settings.crossfadeSeconds} second${state.settings.crossfadeSeconds === 1 ? '' : 's'}`;
+
   const handleBackgroundModeChange = (mode: BackgroundMode) => {
     writeBackgroundMode(mode);
     setBackgroundMode(mode);
@@ -96,6 +108,31 @@ export function SettingsPage() {
           <p className="settings-copy">
             When enabled, a song is removed from the queue after it finishes playing
             naturally. Skipped songs stay in the queue. Audio files are not deleted.
+          </p>
+          {settingsError && <p className="settings-feedback error">{settingsError}</p>}
+        </section>
+
+        <section className="settings-section">
+          <h2>Playback</h2>
+          <label className="karaoke-slider-label">
+            Crossfade
+            <input
+              className="karaoke-slider"
+              type="range"
+              min={0}
+              max={10}
+              step={1}
+              value={state.settings.crossfadeSeconds}
+              onChange={(event) => handleCrossfadeChange(Number(event.target.value))}
+              aria-valuetext={crossfadeLabel}
+            />
+            <span className="karaoke-slider-value">{crossfadeLabel}</span>
+          </label>
+          <p className="settings-copy">
+            When enabled, the next queued song starts fading in before the current
+            song ends. Set to 0 to turn off. Use the crossfade button in the
+            player bar to toggle quickly; it stays on for every song until you
+            turn it off.
           </p>
           {settingsError && <p className="settings-feedback error">{settingsError}</p>}
         </section>

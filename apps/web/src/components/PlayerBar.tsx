@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { FiPause, FiPlay, FiSkipForward } from 'react-icons/fi';
+import { LuBlend } from 'react-icons/lu';
 import { TrackDto } from '@karaokej/shared';
 import { api } from '../api';
 import { formatDuration } from '../format';
@@ -45,6 +46,10 @@ export function PlayerBar({ compact = false }: { compact?: boolean }) {
   const displayed = seekBarDisplayedMs({ scrub, positionMs });
   const playing = state.playback.status === 'playing';
   const playLabel = playing ? 'Pause' : 'Play';
+  const crossfadeOn = state.settings.crossfadeSeconds > 0;
+  const crossfadeLabel = crossfadeOn
+    ? `Crossfade on, ${state.settings.crossfadeSeconds} seconds`
+    : 'Crossfade off';
   const canFetch = track != null && track.lyricStatus !== 'present';
 
   const commitSeek = (value: number) => {
@@ -103,6 +108,20 @@ export function PlayerBar({ compact = false }: { compact?: boolean }) {
         )}
       </div>
       <div className="player-controls">
+        <button
+          type="button"
+          className="icon-btn"
+          aria-pressed={crossfadeOn}
+          onClick={() =>
+            void api.patchSettings({
+              crossfadeSeconds: crossfadeOn ? 0 : state.settings.crossfadePrefSeconds,
+            })
+          }
+          title={crossfadeLabel}
+          aria-label={crossfadeLabel}
+        >
+          <LuBlend aria-hidden />
+        </button>
         <button
           type="button"
           className="icon-btn"

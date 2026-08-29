@@ -311,6 +311,8 @@ export const emptySession: SessionStateDto = {
   },
   settings: {
     removePlayedFromQueue: false,
+    crossfadeSeconds: 0,
+    crossfadePrefSeconds: 5,
   },
   karaoke: defaultKaraokeState(),
 };

@@ -220,6 +220,12 @@ input[type='text'],
   height: 1.1rem;
 }
 
+.icon-btn[aria-pressed='true'] {
+  color: #111;
+  background: var(--gold);
+  border-color: var(--gold-deep);
+}
+
 a.icon-btn {
   line-height: 0;
 }
