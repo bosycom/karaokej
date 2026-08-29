@@ -1,10 +1,11 @@
 import { ScanIssueDto } from '@karaokej/shared';
-import { useEffect, useRef } from 'react';
+import { ModalDialog } from './ModalDialog';
 
 interface ScanIssuesModalProps {
   open: boolean;
   issues: ScanIssueDto[];
   onClose: () => void;
+  closeOnBackdropClick?: boolean;
 }
 
 function issueReason(op: ScanIssueDto['op']): string {
@@ -22,66 +23,48 @@ function issueReason(op: ScanIssueDto['op']): string {
   }
 }
 
-export function ScanIssuesModal({ open, issues, onClose }: ScanIssuesModalProps) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) {
-      return;
-    }
-    if (open && !dialog.open) {
-      dialog.showModal();
-    } else if (!open && dialog.open) {
-      dialog.close();
-    }
-  }, [open]);
-
+export function ScanIssuesModal({
+  open,
+  issues,
+  onClose,
+  closeOnBackdropClick,
+}: ScanIssuesModalProps) {
   const countLabel = `${issues.length.toLocaleString()} ${
     issues.length === 1 ? 'path' : 'paths'
   }`;
 
   return (
-    <dialog
-      ref={dialogRef}
-      className="modal"
-      onCancel={(event) => {
-        event.preventDefault();
-        onClose();
-      }}
-      onClick={(event) => {
-        if (event.target === dialogRef.current) {
-          onClose();
-        }
-      }}
+    <ModalDialog
+      open={open}
+      title="Skipped or unscannable files"
+      onClose={onClose}
+      closeOnBackdropClick={closeOnBackdropClick}
+      panelClassName="modal-panel-tall"
     >
-      <div className="modal-panel modal-panel-tall">
-        <h2 className="modal-title">Skipped or unscannable files</h2>
-        <div className="modal-body">
-          <p>
-            The scan finished, but {countLabel} could not be scanned. Scroll the
-            list to review them.
-          </p>
-        </div>
-        <div className="modal-issue-scroll">
-          <ul className="modal-issue-list">
-            {issues.map((issue, index) => (
-              <li key={`${issue.op}:${issue.path}:${index}`}>
-                <div className="modal-issue-path">{issue.path}</div>
-                <div className="modal-issue-reason">
-                  {issueReason(issue.op)}
-                  {issue.message ? ` · ${issue.message}` : ''}
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
-        <div className="modal-actions">
-          <button type="button" className="modal-primary" onClick={onClose}>
-            Close
-          </button>
-        </div>
+      <div className="modal-body">
+        <p>
+          The scan finished, but {countLabel} could not be scanned. Scroll the list to review
+          them.
+        </p>
       </div>
-    </dialog>
+      <div className="modal-issue-scroll">
+        <ul className="modal-issue-list">
+          {issues.map((issue, index) => (
+            <li key={`${issue.op}:${issue.path}:${index}`}>
+              <div className="modal-issue-path">{issue.path}</div>
+              <div className="modal-issue-reason">
+                {issueReason(issue.op)}
+                {issue.message ? ` · ${issue.message}` : ''}
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div className="modal-actions">
+        <button type="button" className="modal-primary" onClick={onClose}>
+          Close
+        </button>
+      </div>
+    </ModalDialog>
   );
 }

@@ -1,7 +1,8 @@
-import { FormEvent, useEffect, useRef, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { LyricSearchHitDto, TrackDto } from '@karaokej/shared';
 import { api } from '../api';
 import { formatDuration } from '../format';
+import { ModalDialog } from './ModalDialog';
 import { ProcessingText } from './ProcessingText';
 
 interface LyricSearchModalProps {
@@ -9,6 +10,7 @@ interface LyricSearchModalProps {
   track: TrackDto | null;
   onClose: () => void;
   onApplied?: () => void;
+  closeOnBackdropClick?: boolean;
 }
 
 type SearchPhase = 'idle' | 'searching' | 'done';
@@ -22,26 +24,14 @@ export function LyricSearchModal({
   track,
   onClose,
   onApplied,
+  closeOnBackdropClick,
 }: LyricSearchModalProps) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
   const [query, setQuery] = useState('');
   const [phase, setPhase] = useState<SearchPhase>('idle');
   const [hits, setHits] = useState<LyricSearchHitDto[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) {
-      return;
-    }
-    if (open && !dialog.open) {
-      dialog.showModal();
-    } else if (!open && dialog.open) {
-      dialog.close();
-    }
-  }, [open]);
 
   useEffect(() => {
     if (!open || !track) {
@@ -105,21 +95,14 @@ export function LyricSearchModal({
     : '';
 
   return (
-    <dialog
-      ref={dialogRef}
-      className="modal"
-      onCancel={(event) => {
-        event.preventDefault();
-        onClose();
-      }}
-      onClick={(event) => {
-        if (event.target === dialogRef.current) {
-          onClose();
-        }
-      }}
+    <ModalDialog
+      open={open}
+      title="Search lyrics"
+      onClose={onClose}
+      closeOnBackdropClick={closeOnBackdropClick}
+      closeDisabled={saving}
+      panelClassName="modal-panel-tall"
     >
-      <div className="modal-panel modal-panel-tall">
-        <h2 className="modal-title">Search lyrics</h2>
         <div className="modal-body">
           {track && (
             <p>
@@ -199,7 +182,6 @@ export function LyricSearchModal({
             {saving ? 'Saving…' : 'Save lyrics'}
           </button>
         </div>
-      </div>
-    </dialog>
+    </ModalDialog>
   );
 }

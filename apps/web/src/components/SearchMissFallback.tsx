@@ -95,103 +95,106 @@ export function SearchMissFallback({
         No library match for <strong>{query}</strong>.
       </p>
 
-      <section className="search-miss-section">
-        <h3 className="search-miss-heading">Play elsewhere</h3>
-        <p className="search-miss-copy">Search these platforms in a new tab:</p>
-        <ul className="search-miss-links">
-          <li>
-            <a href={urls.youtube} target="_blank" rel="noreferrer">
-              YouTube
-            </a>
-          </li>
-          <li>
-            <a href={urls.spotify} target="_blank" rel="noreferrer">
-              Spotify
-            </a>
-          </li>
-          <li>
-            <a href={urls.vimeo} target="_blank" rel="noreferrer">
-              Vimeo
-            </a>
-          </li>
-        </ul>
-      </section>
-
       <section className="search-miss-section search-miss-download">
         <h3 className="search-miss-heading">Download</h3>
-        {ytdlpAvailable ? (
-          <>
-            <p className="search-miss-copy">
-              Search YouTube, pick a result, and download it as MP3 into your library&apos;s
-              Downloads folder.
-            </p>
-            <div className="search-miss-actions">
-              <button
-                type="button"
-                disabled={searchPhase === 'searching' || downloadRunning}
-                onClick={() => void searchYoutube()}
-              >
-                {searchPhase === 'searching' ? (
-                  <ProcessingText>Searching YouTube…</ProcessingText>
-                ) : (
-                  'Search YouTube'
-                )}
-              </button>
-            </div>
-            {downloadRunning && downloadMessage ? (
-              <p className="search-miss-hint">
-                <ProcessingText>{downloadMessage}</ProcessingText>
-              </p>
-            ) : null}
-            {searchError && <p className="search-miss-error">{searchError}</p>}
-            {downloadError && <p className="search-miss-error">{downloadError}</p>}
-            {searchPhase === 'done' && hits.length === 0 && !searchError ? (
-              <p className="search-miss-hint">No YouTube results found.</p>
-            ) : null}
-            {hits.length > 0 ? (
-              <ul className="search-miss-hit-list">
-                {hits.map((hit) => {
-                  const meta = [
-                    hit.uploader,
-                    hit.durationMs != null ? formatDuration(hit.durationMs) : null,
-                  ]
-                    .filter(Boolean)
-                    .join(' · ');
-                  const busy =
-                    downloadRunning ||
-                    downloadingId === hit.id ||
-                    downloadingId != null;
-                  return (
-                    <li key={hit.id} className="search-miss-hit">
-                      <div className="search-miss-hit-text">
-                        <div className="search-miss-hit-title">{hit.title}</div>
-                        {meta ? (
-                          <div className="search-miss-hit-meta">{meta}</div>
-                        ) : null}
-                      </div>
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => void downloadHit(hit)}
-                      >
-                        {downloadingId === hit.id || downloadRunning ? (
-                          <ProcessingText>Downloading…</ProcessingText>
-                        ) : (
-                          'Download MP3'
-                        )}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            ) : null}
-          </>
-        ) : (
+        <p className="search-miss-copy">Search and download as mp3</p>
+        <div className="search-miss-actions">
+          <button
+            type="button"
+            disabled={!ytdlpAvailable || searchPhase === 'searching' || downloadRunning}
+            onClick={() => void searchYoutube()}
+          >
+            {searchPhase === 'searching' ? (
+              <ProcessingText>Searching…</ProcessingText>
+            ) : (
+              'YouTube'
+            )}
+          </button>
+        </div>
+        {!ytdlpAvailable ? (
           <p className="search-miss-hint">
             yt-dlp is not available on this host. Set <code>YTDLP_PATH</code> in .env if it
             is installed elsewhere.
           </p>
-        )}
+        ) : null}
+        {downloadRunning && downloadMessage ? (
+          <p className="search-miss-hint">
+            <ProcessingText>{downloadMessage}</ProcessingText>
+          </p>
+        ) : null}
+        {searchError && <p className="search-miss-error">{searchError}</p>}
+        {downloadError && <p className="search-miss-error">{downloadError}</p>}
+        {searchPhase === 'done' && hits.length === 0 && !searchError ? (
+          <p className="search-miss-hint">No YouTube results found.</p>
+        ) : null}
+        {hits.length > 0 ? (
+          <ul className="search-miss-hit-list">
+            {hits.map((hit) => {
+              const meta = [
+                hit.uploader,
+                hit.durationMs != null ? formatDuration(hit.durationMs) : null,
+              ]
+                .filter(Boolean)
+                .join(' · ');
+              const busy =
+                downloadRunning ||
+                downloadingId === hit.id ||
+                downloadingId != null;
+              return (
+                <li key={hit.id} className="search-miss-hit">
+                  <div className="search-miss-hit-text">
+                    <div className="search-miss-hit-title">{hit.title}</div>
+                    {meta ? (
+                      <div className="search-miss-hit-meta">{meta}</div>
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void downloadHit(hit)}
+                  >
+                    {downloadingId === hit.id || downloadRunning ? (
+                      <ProcessingText>Downloading…</ProcessingText>
+                    ) : (
+                      'Download MP3'
+                    )}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        ) : null}
+      </section>
+
+      <section className="search-miss-section">
+        <h3 className="search-miss-heading">Play elsewhere</h3>
+        <p className="search-miss-copy">Search these platforms in a new tab:</p>
+        <div className="search-miss-actions">
+          <a
+            className="search-miss-btn"
+            href={urls.youtube}
+            target="_blank"
+            rel="noreferrer"
+          >
+            YouTube
+          </a>
+          <a
+            className="search-miss-btn"
+            href={urls.spotify}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Spotify
+          </a>
+          <a
+            className="search-miss-btn"
+            href={urls.vimeo}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Vimeo
+          </a>
+        </div>
       </section>
 
       {showYtsaverFallback ? (

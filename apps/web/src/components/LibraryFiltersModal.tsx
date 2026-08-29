@@ -12,6 +12,7 @@ interface LibraryFiltersModalProps {
   onDraftChange: (draft: LibraryFiltersDraft) => void;
   onApply: () => void;
   onCancel: () => void;
+  closeOnBackdropClick?: boolean;
 }
 
 export function LibraryFiltersModal({
@@ -20,6 +21,7 @@ export function LibraryFiltersModal({
   onDraftChange,
   onApply,
   onCancel,
+  closeOnBackdropClick,
 }: LibraryFiltersModalProps) {
   return (
     <Modal
@@ -29,6 +31,7 @@ export function LibraryFiltersModal({
       cancelLabel="Cancel"
       onConfirm={() => onApply()}
       onCancel={onCancel}
+      closeOnBackdropClick={closeOnBackdropClick}
     >
       <div className="filters-modal">
         <label className="filters-modal-row">
