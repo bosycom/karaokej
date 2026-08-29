@@ -7,7 +7,7 @@ import {
   FiChevronsRight,
   FiSettings,
 } from 'react-icons/fi';
-import { LuDices } from 'react-icons/lu';
+import { LuDices, LuHistory } from 'react-icons/lu';
 import {
   LibraryStatusDto,
   PlaylistDetailDto,
@@ -28,13 +28,17 @@ import { ClearQueueModal } from '../components/ClearQueueModal';
 import { Modal } from '../components/Modal';
 import { KaraokeModeControl } from '../components/KaraokeModeControl';
 import { PlayerBar } from '../components/PlayerBar';
+import { UiScaleControl } from '../components/UiScaleControl';
 import { PlayPlaylistModal } from '../components/PlayPlaylistModal';
 import { PlayTrackModal } from '../components/PlayTrackModal';
 import { ProcessingText } from '../components/ProcessingText';
 import { ScanIssuesModal } from '../components/ScanIssuesModal';
 import { LyricSearchModal } from '../components/LyricSearchModal';
+import { TrackMetadataModal } from '../components/TrackMetadataModal';
+import { SearchHistoryModal } from '../components/SearchHistoryModal';
 import { SearchMissFallback } from '../components/SearchMissFallback';
 import { WorkspaceDnd } from '../components/WorkspaceDnd';
+import { addSearchHistoryTerm, readSearchHistory } from '../searchHistory';
 import { MODAL_IDS } from '../modals/dismissedModals';
 import { useConfirmModal } from '../modals/useConfirmModal';
 import { pageWindow } from '../pagination/pageWindow';
@@ -48,6 +52,9 @@ export function LibraryPage() {
   const confirmModal = useConfirmModal();
   const [query, setQuery] = useState('');
   const [inputValue, setInputValue] = useState('');
+  const [searchHistory, setSearchHistory] = useState(() => readSearchHistory());
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const skipHistoryRecordRef = useRef(false);
   const [page, setPage] = useState(1);
   const [fetchingIds, setFetchingIds] = useState<Set<number>>(new Set());
   const [tracks, setTracks] = useState<TrackDto[]>([]);
@@ -70,6 +77,8 @@ export function LibraryPage() {
   const [scanIssues, setScanIssues] = useState<ScanIssueDto[]>([]);
   const [scanIssuesOpen, setScanIssuesOpen] = useState(false);
   const [lyricSearchTrack, setLyricSearchTrack] = useState<TrackDto | null>(null);
+  const [metadataTrack, setMetadataTrack] = useState<TrackDto | null>(null);
+  const [removeStemTrack, setRemoveStemTrack] = useState<TrackDto | null>(null);
   const limit = 15;
 
   const loadTracks = async (
@@ -193,21 +202,44 @@ export function LibraryPage() {
     void loadStatus();
   }, [state.jobs.scan.running, state.jobs.lyricsFetch.running, state.jobs.scan.message]);
 
+  const rememberSearch = (term: string) => {
+    const trimmed = term.trim();
+    if (!trimmed) {
+      return;
+    }
+    setSearchHistory(addSearchHistoryTerm(trimmed));
+  };
+
+  const applySearch = (term: string) => {
+    if (term !== inputValue) {
+      skipHistoryRecordRef.current = true;
+    }
+    setInputValue(term);
+    setQuery(term);
+    setPage(1);
+    rememberSearch(term);
+  };
+
   useEffect(() => {
     const timeout = window.setTimeout(() => {
       setQuery(inputValue);
       setPage(1);
+      if (skipHistoryRecordRef.current) {
+        skipHistoryRecordRef.current = false;
+        return;
+      }
+      rememberSearch(inputValue);
     }, 300);
     return () => window.clearTimeout(timeout);
   }, [inputValue]);
 
   const onSearch = (event: FormEvent) => {
     event.preventDefault();
-    setPage(1);
-    setQuery(inputValue);
+    applySearch(inputValue);
   };
 
   const resetSearch = () => {
+    skipHistoryRecordRef.current = true;
     setInputValue('');
     setQuery('');
     setMinRating(0);
@@ -218,9 +250,7 @@ export function LibraryPage() {
   const pickRandomArtist = async () => {
     try {
       const { artist } = await api.randomArtist(inputValue);
-      setInputValue(artist);
-      setQuery(artist);
-      setPage(1);
+      applySearch(artist);
     } catch {
       /* no artists in library — leave search unchanged */
     }
@@ -328,20 +358,30 @@ export function LibraryPage() {
     }
   };
 
-  const handleDeletePlaylist = (id: number) => {
-    confirmModal.request(MODAL_IDS.playlistDelete, async () => {
-      try {
-        await api.deletePlaylist(id);
-        await loadPlaylists();
-        if (selectedPlaylistId === id) {
-          setSelectedPlaylistId(null);
-          setPlaylistDetail(null);
-        }
-        setError(null);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+  const performDeletePlaylist = async (id: number) => {
+    try {
+      await api.deletePlaylist(id);
+      await loadPlaylists();
+      if (selectedPlaylistId === id) {
+        setSelectedPlaylistId(null);
+        setPlaylistDetail(null);
       }
-    });
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleDeletePlaylist = (id: number) => {
+    const isEmpty =
+      playlistDetail?.id === id
+        ? playlistDetail.items.length === 0
+        : (playlistSummaries.find((playlist) => playlist.id === id)?.itemCount ?? 0) === 0;
+    if (isEmpty) {
+      void performDeletePlaylist(id);
+      return;
+    }
+    confirmModal.request(MODAL_IDS.playlistDelete, () => performDeletePlaylist(id));
   };
 
   const handleRemovePlaylistItem = async (itemId: number) => {
@@ -398,6 +438,29 @@ export function LibraryPage() {
       return;
     }
     setPlayModalPlaylistId(playlistId);
+  };
+
+  const handleRemoveAiStem = (track: TrackDto) => {
+    setRemoveStemTrack(track);
+  };
+
+  const confirmRemoveAiStem = async () => {
+    if (!removeStemTrack) {
+      return;
+    }
+    const trackId = removeStemTrack.id;
+    setRemoveStemTrack(null);
+    try {
+      await api.removeKaraokeStem(trackId);
+      setTracks((prev) =>
+        prev.map((track) =>
+          track.id === trackId ? { ...track, karaokeStemStatus: null } : track,
+        ),
+      );
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   };
 
   const handlePlayTrack = (track: TrackDto) => {
@@ -553,7 +616,9 @@ export function LibraryPage() {
       <header className="topbar">
         <div>
           <p className="eyebrow">I can&apos;t sing, but it&apos;s going to be...</p>
-          <h1>Karaokej</h1>
+          <h1>
+            <span className="brand-kara">Kara</span>okej
+          </h1>
         </div>
         <div className="topbar-actions">
           <KaraokeModeControl
@@ -574,6 +639,7 @@ export function LibraryPage() {
               Play audio here
             </button>
           )}
+          <UiScaleControl />
           <Link className="topbar-link icon-btn" to="/settings" title="Settings" aria-label="Settings">
             <FiSettings aria-hidden />
           </Link>
@@ -690,6 +756,15 @@ export function LibraryPage() {
               >
                 <LuDices aria-hidden />
               </button>
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={() => setHistoryOpen(true)}
+                title="History"
+                aria-label="History"
+              >
+                <LuHistory aria-hidden />
+              </button>
               <button type="button" onClick={openFilters}>
                 {filtersButtonLabel(filterCount)}
               </button>
@@ -722,8 +797,10 @@ export function LibraryPage() {
                     fetching={fetchingIds.has(track.id)}
                     onFetchLyrics={(trackId) => void fetchTrackLyrics(trackId)}
                     onRate={setTrackRating}
-                    onApplySearchTerm={setInputValue}
+                    onApplySearchTerm={applySearch}
                     onPlay={handlePlayTrack}
+                    onEditMetadata={setMetadataTrack}
+                    onRemoveAiStem={handleRemoveAiStem}
                   />
                 ))}
               </ul>
@@ -835,6 +912,20 @@ export function LibraryPage() {
         />
       )}
 
+      <Modal
+        open={removeStemTrack != null}
+        title="Remove AI stem"
+        confirmLabel="Remove"
+        onConfirm={() => void confirmRemoveAiStem()}
+        onCancel={() => setRemoveStemTrack(null)}
+      >
+        <p>
+          Remove the AI instrumental stem for{' '}
+          <strong>{removeStemTrack?.title}</strong>? This deletes the cached
+          file. You can generate it again later.
+        </p>
+      </Modal>
+
       <ClearQueueModal
         open={clearQueueModalOpen}
         currentTrackTitle={state.playback.currentTrack?.title ?? null}
@@ -843,6 +934,16 @@ export function LibraryPage() {
         onKeepCurrent={() => void runClearQueue('except_current')}
         onRemoveBeforeCurrent={() => void runClearQueue('before_current')}
         onCancel={() => setClearQueueModalOpen(false)}
+      />
+
+      <SearchHistoryModal
+        open={historyOpen}
+        terms={searchHistory}
+        onSelect={(term) => {
+          setHistoryOpen(false);
+          applySearch(term);
+        }}
+        onClose={() => setHistoryOpen(false)}
       />
 
       <LibraryFiltersModal
@@ -858,6 +959,17 @@ export function LibraryPage() {
         track={lyricSearchTrack}
         onClose={() => setLyricSearchTrack(null)}
         onApplied={() => void loadTracks(query, page)}
+      />
+
+      <TrackMetadataModal
+        open={metadataTrack != null}
+        track={metadataTrack}
+        onClose={() => setMetadataTrack(null)}
+        onSaved={(updated) => {
+          setTracks((prev) =>
+            prev.map((track) => (track.id === updated.id ? updated : track)),
+          );
+        }}
       />
 
       <PlayerBar />
