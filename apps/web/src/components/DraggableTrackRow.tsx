@@ -18,6 +18,7 @@ interface DraggableTrackRowProps {
   onApplySearchTerm: (term: string) => void;
   onPlay: (track: TrackDto) => void;
   onEditMetadata: (track: TrackDto) => void;
+  onRemoveAiStem: (track: TrackDto) => void;
 }
 
 export function DraggableTrackRow({
@@ -28,6 +29,7 @@ export function DraggableTrackRow({
   onApplySearchTerm,
   onPlay,
   onEditMetadata,
+  onRemoveAiStem,
 }: DraggableTrackRowProps) {
   const { listeners, setNodeRef, isDragging } = useDraggable({
     id: trackDragId(track.id),
@@ -128,6 +130,15 @@ export function DraggableTrackRow({
               label: 'Copy file path',
               onSelect: copyFilePath,
             },
+            ...(track.karaokeStemStatus === 'ready'
+              ? [
+                  {
+                    id: 'remove-ai-stem',
+                    label: 'Remove AI stem',
+                    onSelect: () => onRemoveAiStem(track),
+                  },
+                ]
+              : []),
           ]}
         />
       </div>

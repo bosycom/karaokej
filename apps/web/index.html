@@ -4,8 +4,58 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Karaokej</title>
+    <style>
+      #boot-status {
+        box-sizing: border-box;
+        min-height: 100vh;
+        margin: 0;
+        padding: 1.5rem;
+        background: #07070a;
+        color: #f4f1ea;
+        font: 16px/1.5 "Trebuchet MS", "Segoe UI", sans-serif;
+      }
+      #boot-status.boot-error {
+        color: #ff8b7a;
+      }
+      #boot-status.boot-error h1 {
+        margin: 0 0 0.75rem;
+        font-size: 1.25rem;
+        color: #ffe08a;
+      }
+      #boot-status.boot-error pre {
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        color: #f4f1ea;
+      }
+    </style>
+    <script>
+      (function () {
+        function show(message) {
+          var el = document.getElementById('boot-status');
+          if (!el) return;
+          el.className = 'boot-error';
+          el.innerHTML =
+            '<h1>Karaokej failed to start</h1><pre>' +
+            String(message).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') +
+            '</pre>';
+        }
+        window.addEventListener('error', function (event) {
+          var detail = event.message || 'Unknown error';
+          if (event.filename) {
+            detail += '\n' + event.filename + ':' + event.lineno + ':' + event.colno;
+          }
+          show(detail);
+        });
+        window.addEventListener('unhandledrejection', function (event) {
+          var reason = event.reason;
+          show(reason && reason.message ? reason.message : String(reason));
+        });
+      })();
+    </script>
   </head>
   <body>
+    <div id="boot-status">Loading Karaokej…</div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

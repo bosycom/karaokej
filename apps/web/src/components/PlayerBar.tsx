@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { FiPause, FiPlay, FiSkipForward } from 'react-icons/fi';
 import { TrackDto } from '@karaokej/shared';
 import { api } from '../api';
-import { formatDuration, lyricBadge } from '../format';
+import { formatDuration } from '../format';
+import { LyricStatusBadge } from './LyricStatusBadge';
 import {
   seekBarDisplayedMs,
   seekBarDurationLabelMs,
@@ -11,7 +12,6 @@ import {
 } from '../player/seekBar';
 import { useSession, trackLabel } from '../session/SessionProvider';
 import { LyricSearchModal } from './LyricSearchModal';
-import { ProcessingText } from './ProcessingText';
 import { StarRating } from './StarRating';
 
 export function PlayerBar({ compact = false }: { compact?: boolean }) {
@@ -45,9 +45,7 @@ export function PlayerBar({ compact = false }: { compact?: boolean }) {
   const displayed = seekBarDisplayedMs({ scrub, positionMs });
   const playing = state.playback.status === 'playing';
   const playLabel = playing ? 'Pause' : 'Play';
-  const badge = track ? lyricBadge(track.lyricStatus) : null;
   const canFetch = track != null && track.lyricStatus !== 'present';
-  const fetchLabel = fetchingLyrics ? 'Fetching…' : 'Fetch lyric';
 
   const commitSeek = (value: number) => {
     setScrub(null);
@@ -63,44 +61,32 @@ export function PlayerBar({ compact = false }: { compact?: boolean }) {
             {formatDuration(displayed)} / {formatDuration(durationLabelMs)}
           </span>
         )}
-        {track && badge && (canFetch ? (
-          <button
-            type="button"
-            className={`badge ${badge.tone} badge-fetch`}
-            disabled={fetchingLyrics}
-            onClick={async () => {
-              setFetchingLyrics(true);
-              try {
-                const updated = await api.fetchTrackLyrics(track.id);
-                if (
-                  updated.lyricStatus !== 'present' &&
-                  updated.lyricStatus !== 'instrumental'
-                ) {
-                  setLyricSearchTrack(updated);
-                }
-              } catch {
-                /* keep the previous badge if the fetch fails */
-              } finally {
-                setFetchingLyrics(false);
-              }
-            }}
-            title={fetchLabel}
-            aria-label={fetchLabel}
-          >
-            <span className="badge-idle">
-              {fetchingLyrics ? (
-                <ProcessingText>Fetching…</ProcessingText>
-              ) : (
-                badge.label
-              )}
-            </span>
-            {!fetchingLyrics && (
-              <span className="badge-action">Fetch lyric</span>
-            )}
-          </button>
-        ) : (
-          <span className={`badge ${badge.tone}`}>{badge.label}</span>
-        ))}
+        {track && (
+          <LyricStatusBadge
+            status={track.lyricStatus}
+            fetching={fetchingLyrics}
+            onFetch={
+              canFetch
+                ? async () => {
+                    setFetchingLyrics(true);
+                    try {
+                      const updated = await api.fetchTrackLyrics(track.id);
+                      if (
+                        updated.lyricStatus !== 'present' &&
+                        updated.lyricStatus !== 'instrumental'
+                      ) {
+                        setLyricSearchTrack(updated);
+                      }
+                    } catch {
+                      /* keep the previous badge if the fetch fails */
+                    } finally {
+                      setFetchingLyrics(false);
+                    }
+                  }
+                : undefined
+            }
+          />
+        )}
         {track && (
           <StarRating
             value={track.rating}

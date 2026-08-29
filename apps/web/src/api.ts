@@ -14,6 +14,8 @@ import {
   RandomArtistDto,
   SessionStateDto,
   TrackDto,
+  TrackMetadataDto,
+  TrackMetadataUpdateDto,
   TrackPageDto,
   TrackPathDto,
   YoutubeDownloadResultDto,
@@ -39,7 +41,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (response.status === 204) {
     return undefined as T;
   }
-  return response.json() as Promise<T>;
+  const text = await response.text();
+  if (!text.trim()) {
+    return undefined as T;
+  }
+  return JSON.parse(text) as T;
 }
 
 export const api = {
@@ -102,6 +108,13 @@ export const api = {
     request<TrackDto>(`/api/tracks/${trackId}/rating`, {
       method: 'PUT',
       body: JSON.stringify({ rating }),
+    }),
+  readTrackMetadata: (trackId: number) =>
+    request<TrackMetadataDto>(`/api/tracks/${trackId}/metadata`),
+  updateTrackMetadata: (trackId: number, metadata: TrackMetadataUpdateDto) =>
+    request<TrackDto>(`/api/tracks/${trackId}/metadata`, {
+      method: 'PUT',
+      body: JSON.stringify(metadata),
     }),
   trackPath: (trackId: number) =>
     request<TrackPathDto>(`/api/tracks/${trackId}/path`),
@@ -250,6 +263,10 @@ export const api = {
     }),
   cancelSeparation: () =>
     request<KaraokeStateDto>('/api/karaoke/separation', { method: 'DELETE' }),
+  removeKaraokeStem: (trackId: number) =>
+    request<KaraokeStateDto>(`/api/karaoke/tracks/${trackId}/stem`, {
+      method: 'DELETE',
+    }),
 };
 
 export function wsUrl(): string {

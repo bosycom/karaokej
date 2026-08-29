@@ -31,7 +31,7 @@ import {
   makeFingerprint,
   yieldEventLoop,
 } from './fs-utils';
-import { sanitizeDurationMs } from './duration-utils';
+import { sanitizeDurationMs, isImplausiblyShortDuration } from './duration-utils';
 import {
   planMultiRootRebase,
   parseStoredScanRoots,
@@ -310,7 +310,13 @@ export class LibraryService implements OnModuleInit {
 
   backfillDurationIfMissing(trackId: number): void {
     const track = this.getTrack(trackId);
-    if (!track || track.duration_ms != null) {
+    if (!track) {
+      return;
+    }
+    const needsBackfill =
+      track.duration_ms == null ||
+      isImplausiblyShortDuration(track.duration_ms, track.size_bytes);
+    if (!needsBackfill) {
       return;
     }
     if (this.durationBackfillInFlight.has(trackId)) {
@@ -320,6 +326,7 @@ export class LibraryService implements OnModuleInit {
     if (!absolute) {
       return;
     }
+    const previousDuration = track.duration_ms;
 
     this.durationBackfillInFlight.add(trackId);
     void resolveDurationForTrack(
@@ -332,6 +339,13 @@ export class LibraryService implements OnModuleInit {
         if (safeDuration == null) {
           return;
         }
+        if (
+          previousDuration != null &&
+          safeDuration <= previousDuration &&
+          !isImplausiblyShortDuration(previousDuration, track.size_bytes)
+        ) {
+          return;
+        }
         const fingerprint = makeFingerprint(
           track.artist,
           track.title,
@@ -341,7 +355,7 @@ export class LibraryService implements OnModuleInit {
         const now = Date.now();
         this.db.raw
           .prepare(
-            `UPDATE tracks SET duration_ms = ?, fingerprint = ?, updated_at = ? WHERE id = ? AND duration_ms IS NULL`,
+            `UPDATE tracks SET duration_ms = ?, fingerprint = ?, updated_at = ? WHERE id = ?`,
           )
           .run(safeDuration, fingerprint, now, trackId);
         this.session.broadcast();
@@ -716,6 +730,7 @@ export class LibraryService implements OnModuleInit {
       }
 
       await this.runPhase2Metadata(walkErrors);
+      await this.backfillImplausiblyShortDurations();
 
       if (this.scanCancelRequested) {
         this.setJob('scan', {
@@ -1180,6 +1195,80 @@ export class LibraryService implements OnModuleInit {
         `Tag phase used full-file duration decode for ${phase2DurationFallback.toLocaleString()} tracks`,
       );
     }
+  }
+
+  private async backfillImplausiblyShortDurations(): Promise<void> {
+    const candidates = this.db.raw
+      .prepare(
+        `SELECT id, relative_path, duration_ms, size_bytes, artist, title
+         FROM tracks
+         WHERE available = 1
+           AND metadata_status = 'ready'
+           AND duration_ms IS NOT NULL
+           AND duration_ms < 30000
+           AND size_bytes > 0`,
+      )
+      .all() as Array<{
+      id: number;
+      relative_path: string;
+      duration_ms: number;
+      size_bytes: number;
+      artist: string | null;
+      title: string;
+    }>;
+
+    const toFix = candidates.filter((row) =>
+      isImplausiblyShortDuration(row.duration_ms, row.size_bytes),
+    );
+    if (toFix.length === 0) {
+      return;
+    }
+
+    this.logger.log(
+      `Backfilling implausibly short durations for ${toFix.length.toLocaleString()} tracks`,
+    );
+
+    const fsTimeoutMs = this.config.scanFsTimeoutMs;
+    const concurrency = this.config.scanMetadataConcurrency;
+
+    await mapWithConcurrency(toFix, concurrency, async (row) => {
+      if (this.scanCancelRequested) {
+        return;
+      }
+      const absolute = this.config.resolveUnderLibrary(row.relative_path);
+      if (!absolute) {
+        return;
+      }
+      try {
+        const durationMs = await resolveDurationForTrack(
+          absolute,
+          row.relative_path,
+          fsTimeoutMs,
+        );
+        const safeDuration = sanitizeDurationMs(durationMs);
+        if (safeDuration == null || safeDuration <= row.duration_ms) {
+          return;
+        }
+        const fingerprint = makeFingerprint(
+          row.artist,
+          row.title,
+          row.size_bytes,
+          safeDuration,
+        );
+        const now = Date.now();
+        this.db.raw
+          .prepare(
+            `UPDATE tracks SET duration_ms = ?, fingerprint = ?, updated_at = ? WHERE id = ?`,
+          )
+          .run(safeDuration, fingerprint, now, row.id);
+      } catch (err) {
+        this.logger.warn(
+          `Duration backfill failed for ${row.relative_path}: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    });
+
+    this.session.broadcast();
   }
 
   private markAvailable(relativePath: string): void {

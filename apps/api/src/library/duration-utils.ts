@@ -130,6 +130,91 @@ function findMp3Sync(buffer: Buffer, start: number): number {
   return -1;
 }
 
+const MPEG1_LAYER3_BITRATES = [
+  0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320,
+];
+const MPEG2_LAYER3_BITRATES = [
+  0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160,
+];
+
+function mp3BitrateKbpsFromSync(buffer: Buffer, syncOffset: number): number | null {
+  if (syncOffset + 3 > buffer.length) {
+    return null;
+  }
+  const versionLayer = buffer[syncOffset + 1]!;
+  const bitrateByte = buffer[syncOffset + 2]!;
+  const version = (versionLayer >> 3) & 0x03;
+  const layer = (versionLayer >> 1) & 0x03;
+  if (layer !== 1) {
+    return null;
+  }
+  const bitrateIndex = (bitrateByte >> 4) & 0x0f;
+  if (bitrateIndex === 0 || bitrateIndex === 0x0f) {
+    return null;
+  }
+  const table = version === 3 ? MPEG1_LAYER3_BITRATES : MPEG2_LAYER3_BITRATES;
+  return table[bitrateIndex] ?? null;
+}
+
+function id3v2Size(buffer: Buffer): number {
+  if (buffer.length < 10 || buffer.toString('ascii', 0, 3) !== 'ID3') {
+    return 0;
+  }
+  const size =
+    ((buffer[6]! & 0x7f) << 21) |
+    ((buffer[7]! & 0x7f) << 14) |
+    ((buffer[8]! & 0x7f) << 7) |
+    (buffer[9]! & 0x7f);
+  return 10 + size;
+}
+
+function id3v1Size(fileSize: number, buffer: Buffer): number {
+  if (fileSize >= 128 && buffer.length >= 3) {
+    const tailStart = Math.max(0, buffer.length - 128);
+    if (buffer.toString('ascii', tailStart, tailStart + 3) === 'TAG') {
+      return 128;
+    }
+  }
+  return 0;
+}
+
+function mp3CbrDurationEstimate(buffer: Buffer, fileSize: number): number | null {
+  if (fileSize <= 0) {
+    return null;
+  }
+  const id3Start = id3v2Size(buffer);
+  const id3End = id3v1Size(fileSize, buffer);
+  const syncOffset = findMp3Sync(buffer, id3Start);
+  if (syncOffset < 0) {
+    return null;
+  }
+  const bitrateKbps = mp3BitrateKbpsFromSync(buffer, syncOffset);
+  if (bitrateKbps == null || bitrateKbps <= 0) {
+    return null;
+  }
+  const audioBytes = Math.max(0, fileSize - id3Start - id3End);
+  if (audioBytes <= 0) {
+    return null;
+  }
+  const durationMs = (audioBytes * 8 * 1000) / (bitrateKbps * 1000);
+  return sanitizeDurationMs(durationMs);
+}
+
+/** True when stored duration is implausibly short for the file size (e.g. header-slice bug). */
+export function isImplausiblyShortDuration(
+  durationMs: number | null | undefined,
+  sizeBytes: number,
+): boolean {
+  if (durationMs == null || durationMs <= 0 || sizeBytes <= 0) {
+    return false;
+  }
+  if (durationMs >= 30_000) {
+    return false;
+  }
+  const minDurationAt320KbpsMs = (sizeBytes * 8 * 1000) / 320_000;
+  return minDurationAt320KbpsMs > durationMs * 2;
+}
+
 function durationFromXingTag(
   buffer: Buffer,
   tagOffset: number,
@@ -216,7 +301,7 @@ export function mp3DurationFromHeader(
     }
   }
 
-  return null;
+  return mp3CbrDurationEstimate(buffer, fileSize);
 }
 
 export async function opusDurationFromTail(

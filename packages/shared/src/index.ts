@@ -46,6 +46,30 @@ export interface TrackPathDto {
   path: string;
 }
 
+export interface TrackMetadataDto {
+  title: string;
+  artist: string | null;
+  album: string | null;
+  albumArtist: string | null;
+  trackNo: number | null;
+  year: number | null;
+  genres: string[];
+  rating: number;
+  durationMs: number | null;
+  format: AudioFormat;
+}
+
+export interface TrackMetadataUpdateDto {
+  title: string;
+  artist?: string | null;
+  album?: string | null;
+  albumArtist?: string | null;
+  trackNo?: number | null;
+  year?: number | null;
+  genres?: string[];
+  rating?: number;
+}
+
 export interface LyricLine {
   timeMs: number;
   text: string;

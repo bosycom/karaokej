@@ -15,7 +15,7 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173` on this machine, or `http://<lan-ip>:5173` from another device.
+Open `http://localhost:5173` on this machine, or `http://<lan-ip>:5173` from another device on the same network.
 
 Production:
 
@@ -25,6 +25,75 @@ npm start
 ```
 
 Then open `http://<host>:3000`.
+
+## Access from other devices (WSL2)
+
+Vite and the API already listen on all interfaces (`0.0.0.0`). In dev, the web app proxies `/api` and `/ws` to the API inside WSL, so other devices only need **port 5173**.
+
+### Mirrored networking (recommended on Windows 11 22H2+)
+
+If `%UserProfile%\.wslconfig` already contains:
+
+```ini
+[wsl2]
+networkingMode=mirrored
+```
+
+then WSL shares your Windows LAN IP. You do **not** need `netsh portproxy`. After changing `.wslconfig`, run `wsl --shutdown` once and reopen your distro.
+
+Verify inside WSL that the LAN IP matches Windows (e.g. `192.168.50.55`):
+
+```bash
+hostname -I
+```
+
+Start the dev server, then open `http://<windows-lan-ip>:5173` from your tablet (e.g. `http://192.168.50.55:5173`).
+
+If the tablet still cannot connect, allow inbound TCP 5173 in Windows Firewall (elevated PowerShell):
+
+```powershell
+netsh advfirewall firewall add rule name="Karaokej Vite 5173" dir=in action=allow protocol=TCP localport=5173
+```
+
+On some Windows builds you may also need a Hyper-V firewall rule for WSL; if Defender alone does not help, search for "WSL mirrored networking firewall" in Microsoft docs for your Windows version.
+
+For production (`npm start`), allow **port 3000** instead of 5173.
+
+### Port forwarding (default WSL2 NAT only)
+
+Skip this section if mirrored networking is enabled.
+
+On default NAT networking, `localhost:5173` works on the Windows PC, but other LAN devices hit the Windows LAN IP and will **not** reach Vite until you publish the port from Windows into WSL.
+
+Run in **elevated PowerShell** on the Windows host. Get the current WSL IPv4 first (it can change after `wsl --shutdown`):
+
+```powershell
+wsl hostname -I
+```
+
+Forward port 5173 and allow it through the firewall:
+
+```powershell
+netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=5173 connectaddress=<WSL_IP> connectport=5173
+netsh advfirewall firewall add rule name="Karaokej Vite 5173" dir=in action=allow protocol=TCP localport=5173
+```
+
+On your tablet or phone, open `http://<windows-lan-ip>:5173` (e.g. `http://192.168.50.55:5173`).
+
+Useful checks:
+
+- From Windows: `netsh interface portproxy show all`
+- From WSL: `ss -ltn | grep 5173` (or `curl -sI http://127.0.0.1:5173`)
+
+Remove the forward later:
+
+```powershell
+netsh interface portproxy delete v4tov4 listenaddress=0.0.0.0 listenport=5173
+```
+
+Re-run the `portproxy add` command after WSL restarts if the WSL IP changed.
+
+For production (`npm start`), use the same pattern on **port 3000** instead of 5173.
 
 ## Usage
 

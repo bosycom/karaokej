@@ -127,7 +127,7 @@ export async function resolveTrackDurationMs(
   let headerDuration = durationMsFromMeta(meta);
   if (
     headerDuration != null &&
-    isOggContainerPath(absolutePath) &&
+    (isOggContainerPath(absolutePath) || isMp3Path(absolutePath)) &&
     hasHeaderOnlyParse
   ) {
     headerDuration = null;

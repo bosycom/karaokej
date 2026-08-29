@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   flacDurationFromHeader,
   granuleToDurationMs,
+  isImplausiblyShortDuration,
   isOggContainerPath,
   MAX_DURATION_MS,
   mp3DurationFromHeader,
@@ -91,6 +92,27 @@ describe('mp3DurationFromHeader', () => {
     buffer.writeUInt32BE(417, 208);
     const duration = mp3DurationFromHeader(buffer, 4_000_000);
     expect(duration).toBeGreaterThan(0);
+  });
+
+  it('estimates CBR duration when no VBR header is present', () => {
+    const buffer = Buffer.alloc(512);
+    buffer[0] = 0xff;
+    buffer[1] = 0xfb;
+    buffer[2] = 0x90;
+    buffer[3] = 0x00;
+    const duration = mp3DurationFromHeader(buffer, 4_000_000);
+    expect(duration).not.toBeNull();
+    expect(duration!).toBeGreaterThan(60_000);
+  });
+});
+
+describe('isImplausiblyShortDuration', () => {
+  it('flags short durations that cannot fit the file at 320 kbps', () => {
+    expect(isImplausiblyShortDuration(15_000, 5_000_000)).toBe(true);
+  });
+
+  it('allows genuinely short clips', () => {
+    expect(isImplausiblyShortDuration(15_000, 60_000)).toBe(false);
   });
 });
 

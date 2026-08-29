@@ -14,6 +14,7 @@ import { Request, Response } from 'express';
 import { LibraryService } from '../library/library.service';
 import { LyricsService } from '../lyrics/lyrics.service';
 import { RatingService } from '../rating/rating.service';
+import { TrackMetadataService } from '../metadata/track-metadata.service';
 import { SeparationService } from '../karaoke/separation.service';
 import { StreamService } from '../stream/stream.service';
 import { NotFoundException } from '@nestjs/common';
@@ -25,6 +26,7 @@ export class TracksController {
     private readonly lyrics: LyricsService,
     private readonly stream: StreamService,
     private readonly ratings: RatingService,
+    private readonly metadata: TrackMetadataService,
     private readonly separation: SeparationService,
   ) {}
 
@@ -103,6 +105,19 @@ export class TracksController {
     @Body() body: { rating?: unknown },
   ) {
     return this.ratings.setRating(id, body?.rating);
+  }
+
+  @Get(':id/metadata')
+  readMetadata(@Param('id', ParseIntPipe) id: number) {
+    return this.metadata.readFromFile(id);
+  }
+
+  @Put(':id/metadata')
+  updateMetadata(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: Record<string, unknown>,
+  ) {
+    return this.metadata.updateMetadata(id, body);
   }
 
   @Get(':id/path')

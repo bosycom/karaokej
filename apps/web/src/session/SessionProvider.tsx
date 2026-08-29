@@ -20,12 +20,27 @@ import { getKaraokeEngine } from '../audio/karaokeEngine';
 
 const CLIENT_KEY = 'karaokej.clientId';
 
+function randomClientId(): string {
+  if (typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  if (typeof crypto.getRandomValues === 'function') {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  }
+  return `client-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+}
+
 function getClientId(): string {
   const existing = localStorage.getItem(CLIENT_KEY);
   if (existing) {
     return existing;
   }
-  const id = crypto.randomUUID();
+  const id = randomClientId();
   localStorage.setItem(CLIENT_KEY, id);
   return id;
 }
@@ -35,6 +50,7 @@ interface SessionContextValue {
   state: SessionStateDto;
   isPlayer: boolean;
   positionMs: number;
+  liveAudioDurationMs: number;
   lyrics: LyricsDto | null;
   connected: boolean;
 }
@@ -54,6 +70,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<SessionStateDto>(emptySession);
   const [connected, setConnected] = useState(false);
   const [positionMs, setPositionMs] = useState(0);
+  const [liveAudioDurationMs, setLiveAudioDurationMs] = useState(0);
   const [lyrics, setLyrics] = useState<LyricsDto | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const karaokeEngineRef = useRef(getKaraokeEngine());
@@ -166,6 +183,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       lastTrackId.current = currentTrack.id;
       lastAppliedSrc.current = nextSrc;
       applyingRemote.current = true;
+      if (trackChanged) {
+        setLiveAudioDurationMs(0);
+      }
       audio.src = nextSrc;
       audio.load();
 
@@ -194,6 +214,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (trackChanged || lastSeekSeq.current !== state.playback.seekSeq) {
       lastSeekSeq.current = state.playback.seekSeq;
       applyingRemote.current = true;
+      setPositionMs(state.playback.positionMs);
       const target = state.playback.positionMs / 1000;
       const seek = () => {
         try {
@@ -202,6 +223,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           /* not ready */
         }
         applyingRemote.current = false;
+        setPositionMs(audio.currentTime * 1000);
       };
       if (audio.readyState >= 1) {
         seek();
@@ -249,11 +271,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const onTime = () => {
+    const syncPosition = () => {
       if (!isPlayer) {
         return;
       }
       setPositionMs(audio.currentTime * 1000);
+    };
+    const syncDuration = () => {
+      if (!isPlayer || !Number.isFinite(audio.duration) || audio.duration <= 0) {
+        setLiveAudioDurationMs(0);
+        return;
+      }
+      setLiveAudioDurationMs(Math.round(audio.duration * 1000));
     };
     const onEnded = () => {
       if (isPlayer) {
@@ -261,10 +290,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    audio.addEventListener('timeupdate', onTime);
+    audio.addEventListener('timeupdate', syncPosition);
+    audio.addEventListener('seeked', syncPosition);
+    audio.addEventListener('loadedmetadata', syncDuration);
+    audio.addEventListener('durationchange', syncDuration);
     audio.addEventListener('ended', onEnded);
+    syncDuration();
     return () => {
-      audio.removeEventListener('timeupdate', onTime);
+      audio.removeEventListener('timeupdate', syncPosition);
+      audio.removeEventListener('seeked', syncPosition);
+      audio.removeEventListener('loadedmetadata', syncDuration);
+      audio.removeEventListener('durationchange', syncDuration);
       audio.removeEventListener('ended', onEnded);
     };
   }, [isPlayer, clientId]);
@@ -302,11 +338,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       clientId,
       state,
       isPlayer,
-      positionMs: isPlayer ? positionMs : positionMs,
+      positionMs,
+      liveAudioDurationMs: isPlayer ? liveAudioDurationMs : 0,
       lyrics,
       connected,
     }),
-    [clientId, state, isPlayer, positionMs, lyrics, connected],
+    [clientId, state, isPlayer, positionMs, liveAudioDurationMs, lyrics, connected],
   );
 
   return (

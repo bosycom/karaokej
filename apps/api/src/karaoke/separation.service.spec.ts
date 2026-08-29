@@ -134,6 +134,33 @@ describe('SeparationService', () => {
     expect(separation.getStemDto(trackId).error).toContain('code 1');
   });
 
+  it('removes a ready stem file and database row', async () => {
+    const trackId = insertTrack(db, {
+      relativePath: 'a/song.mp3',
+      title: 'Song',
+    });
+    const stemPath = join(stemCache, `${trackId}.mp3`);
+    writeFileSync(stemPath, 'instrumental');
+    const now = Date.now();
+    db.raw
+      .prepare(
+        `INSERT INTO karaoke_stems (
+           track_id, status, file_path, source_mtime_ms, source_size_bytes,
+           created_at, updated_at
+         ) VALUES (?, 'ready', ?, 1000, 1000, ?, ?)`,
+      )
+      .run(trackId, stemPath, now, now);
+
+    separation.remove(trackId);
+
+    expect(existsSync(stemPath)).toBe(false);
+    expect(
+      db.raw
+        .prepare(`SELECT COUNT(*) AS n FROM karaoke_stems WHERE track_id = ?`)
+        .get(trackId),
+    ).toEqual({ n: 0 });
+  });
+
   it('recovers processing rows on boot', async () => {
     const trackId = insertTrack(db, {
       relativePath: 'a/song.mp3',

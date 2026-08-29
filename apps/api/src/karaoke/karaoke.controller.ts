@@ -81,4 +81,11 @@ export class KaraokeController {
     this.session.broadcast();
     return this.karaoke.getState();
   }
+
+  @Delete('karaoke/tracks/:id/stem')
+  removeStem(@Param('id', ParseIntPipe) id: number): KaraokeStateDto {
+    this.separation.remove(id);
+    this.session.broadcast();
+    return this.karaoke.getState();
+  }
 }

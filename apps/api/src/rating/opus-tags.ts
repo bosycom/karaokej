@@ -1,9 +1,11 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { atomicReplace } from './atomic-replace';
 import {
+  applyMetadataComments,
   parseVorbisCommentPacket,
   serializeVorbisCommentPacket,
   setRatingComment,
+  type VorbisMetadataInput,
 } from './vorbis-comment';
 
 const OGGS = Buffer.from('OggS');
@@ -167,6 +169,118 @@ function parseOgg(data: Buffer): OggPage[] {
   return pages;
 }
 
+async function rewriteOpusTagPacket(
+  absolutePath: string,
+  nextPacket: Buffer,
+): Promise<void> {
+  const data = await readFile(absolutePath);
+  const pages = parseOgg(data);
+  if (pages.length === 0) {
+    throw new Error('Empty Ogg file');
+  }
+  const headPages: OggPage[] = [];
+  const tagPages: OggPage[] = [];
+  const rest: OggPage[] = [];
+  let stage: 'head' | 'tags' | 'audio' = 'head';
+  for (const page of pages) {
+    if (stage === 'head') {
+      headPages.push(page);
+      const packet = packetFromPages(headPages);
+      if (packet.length >= 8 && packet.subarray(0, 8).equals(OPUS_HEAD)) {
+        const continued = page.segments.length > 0 && page.segments[page.segments.length - 1].length === 255;
+        if (!continued) {
+          stage = 'tags';
+        }
+      }
+      continue;
+    }
+    if (stage === 'tags') {
+      tagPages.push(page);
+      const packet = packetFromPages(tagPages);
+      if (packet.length >= 8 && packet.subarray(0, 8).equals(OPUS_TAGS)) {
+        const continued = page.segments.length > 0 && page.segments[page.segments.length - 1].length === 255;
+        if (!continued) {
+          stage = 'audio';
+        }
+      }
+      continue;
+    }
+    rest.push(page);
+  }
+
+  if (headPages.length === 0 || tagPages.length === 0) {
+    throw new Error('Opus identification or comment header is missing');
+  }
+
+  const serial = headPages[0].serial;
+  const newTagPages = pagesForPacket(nextPacket, serial, headPages.length, 0, 0);
+  const sequenceBase = headPages.length + newTagPages.length;
+  const rewrittenRest = rest.map((page, index) => ({
+    ...page,
+    sequence: sequenceBase + index,
+  }));
+
+  const out = Buffer.concat([
+    ...headPages.map(writePage),
+    ...newTagPages.map(writePage),
+    ...rewrittenRest.map(writePage),
+  ]);
+
+  await atomicReplace(absolutePath, async (tempPath) => {
+    await writeFile(tempPath, out);
+  });
+}
+
+export async function writeOpusMetadata(
+  absolutePath: string,
+  metadata: VorbisMetadataInput,
+): Promise<void> {
+  const data = await readFile(absolutePath);
+  const pages = parseOgg(data);
+  if (pages.length === 0) {
+    throw new Error('Empty Ogg file');
+  }
+  const headPages: OggPage[] = [];
+  const tagPages: OggPage[] = [];
+  let stage: 'head' | 'tags' = 'head';
+  for (const page of pages) {
+    if (stage === 'head') {
+      headPages.push(page);
+      const packet = packetFromPages(headPages);
+      if (packet.length >= 8 && packet.subarray(0, 8).equals(OPUS_HEAD)) {
+        const continued = page.segments.length > 0 && page.segments[page.segments.length - 1].length === 255;
+        if (!continued) {
+          stage = 'tags';
+        }
+      }
+      continue;
+    }
+    if (stage === 'tags') {
+      tagPages.push(page);
+      const packet = packetFromPages(tagPages);
+      if (packet.length >= 8 && packet.subarray(0, 8).equals(OPUS_TAGS)) {
+        const continued = page.segments.length > 0 && page.segments[page.segments.length - 1].length === 255;
+        if (!continued) {
+          break;
+        }
+      }
+    }
+  }
+  const tagPacket = packetFromPages(tagPages);
+  if (!tagPacket.subarray(0, 8).equals(OPUS_TAGS)) {
+    throw new Error('Opus comment header is invalid');
+  }
+  const parsed = parseVorbisCommentPacket(tagPacket.subarray(8));
+  const nextPacket = Buffer.concat([
+    OPUS_TAGS,
+    serializeVorbisCommentPacket(
+      parsed.vendor,
+      applyMetadataComments(parsed.comments, metadata),
+    ),
+  ]);
+  await rewriteOpusTagPacket(absolutePath, nextPacket);
+}
+
 export async function writeOpusRating(
   absolutePath: string,
   rating: number,
@@ -222,22 +336,5 @@ export async function writeOpusRating(
       setRatingComment(parsed.comments, rating),
     ),
   ]);
-
-  const serial = headPages[0].serial;
-  const newTagPages = pagesForPacket(nextPacket, serial, headPages.length, 0, 0);
-  const sequenceBase = headPages.length + newTagPages.length;
-  const rewrittenRest = rest.map((page, index) => ({
-    ...page,
-    sequence: sequenceBase + index,
-  }));
-
-  const out = Buffer.concat([
-    ...headPages.map(writePage),
-    ...newTagPages.map(writePage),
-    ...rewrittenRest.map(writePage),
-  ]);
-
-  await atomicReplace(absolutePath, async (tempPath) => {
-    await writeFile(tempPath, out);
-  });
+  await rewriteOpusTagPacket(absolutePath, nextPacket);
 }

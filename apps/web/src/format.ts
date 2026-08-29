@@ -73,10 +73,14 @@ export function formatTrackSubtitle(track: {
     .join('');
 }
 
-export function lyricBadge(status: string): { label: string; tone: string } {
+export function lyricBadge(status: string): {
+  label: string;
+  tone: string;
+  icon?: 'lyrics';
+} {
   switch (status) {
     case 'present':
-      return { label: 'Lyrics', tone: 'ok' };
+      return { label: 'Lyrics', tone: 'ok', icon: 'lyrics' };
     case 'instrumental':
       return { label: 'Instrumental', tone: 'muted' };
     case 'not_found':
@@ -84,7 +88,7 @@ export function lyricBadge(status: string): { label: string; tone: string } {
     case 'error':
       return { label: 'Lyric error', tone: 'warn' };
     default:
-      return { label: 'Missing lyrics', tone: 'muted' };
+      return { label: 'Missing lyrics', tone: 'muted', icon: 'lyrics' };
   }
 }
 

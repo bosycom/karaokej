@@ -19,6 +19,7 @@ import { StreamService } from './stream/stream.service';
 import { SettingsService } from './settings/settings.service';
 import { SettingsController } from './settings/settings.controller';
 import { RatingService } from './rating/rating.service';
+import { TrackMetadataService } from './metadata/track-metadata.service';
 import { PlaylistsController } from './playlists/playlists.controller';
 import { PlaylistsService } from './playlists/playlists.service';
 import { ExternalController } from './external/external.controller';
@@ -63,6 +64,7 @@ import { SeparationService } from './karaoke/separation.service';
     StreamService,
     SettingsService,
     RatingService,
+    TrackMetadataService,
     PlaylistsService,
     YtsaverService,
     YtdlpService,

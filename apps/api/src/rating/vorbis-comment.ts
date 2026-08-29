@@ -82,3 +82,59 @@ export function setRatingComment(
   next.push({ key: 'RATING', value: String(rating) });
   return next;
 }
+
+const METADATA_COMMENT_KEYS = new Set([
+  'TITLE',
+  'ARTIST',
+  'ALBUM',
+  'ALBUMARTIST',
+  'TRACKNUMBER',
+  'DATE',
+  'YEAR',
+  'GENRE',
+  'RATING',
+]);
+
+export interface VorbisMetadataInput {
+  title: string;
+  artist: string | null;
+  album: string | null;
+  albumArtist: string | null;
+  trackNo: number | null;
+  year: number | null;
+  genres: string[];
+  rating: number;
+}
+
+export function applyMetadataComments(
+  comments: VorbisComment[],
+  metadata: VorbisMetadataInput,
+): VorbisComment[] {
+  const next = comments.filter(
+    (comment) => !METADATA_COMMENT_KEYS.has(comment.key.toUpperCase()),
+  );
+  next.push({ key: 'TITLE', value: metadata.title });
+  if (metadata.artist) {
+    next.push({ key: 'ARTIST', value: metadata.artist });
+  }
+  if (metadata.album) {
+    next.push({ key: 'ALBUM', value: metadata.album });
+  }
+  if (metadata.albumArtist) {
+    next.push({ key: 'ALBUMARTIST', value: metadata.albumArtist });
+  }
+  if (metadata.trackNo != null) {
+    next.push({ key: 'TRACKNUMBER', value: String(metadata.trackNo) });
+  }
+  if (metadata.year != null) {
+    next.push({ key: 'DATE', value: String(metadata.year) });
+  }
+  for (const genre of metadata.genres) {
+    const trimmed = genre.trim();
+    if (trimmed) {
+      next.push({ key: 'GENRE', value: trimmed });
+    }
+  }
+  next.push({ key: 'RATING', value: String(metadata.rating) });
+  return next;
+}

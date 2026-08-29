@@ -139,7 +139,7 @@ export class SeparationService implements OnModuleInit {
     const track = this.getTrackRow(trackId);
     let row = this.getStemRow(trackId);
     if (row && row.status === 'ready' && !this.isStemFresh(row, track)) {
-      this.invalidateStem(trackId, track);
+      this.invalidateStem(trackId);
       row = this.getStemRow(trackId);
     }
     if (
@@ -147,7 +147,7 @@ export class SeparationService implements OnModuleInit {
       (row.status === 'pending' || row.status === 'processing') &&
       !this.isStemFresh(row, track)
     ) {
-      this.invalidateStem(trackId, track);
+      this.invalidateStem(trackId);
       row = this.getStemRow(trackId);
     }
     return karaokeStemToDto(trackId, row ?? null);
@@ -166,6 +166,16 @@ export class SeparationService implements OnModuleInit {
       throw new NotFoundException('Instrumental stem file is missing');
     }
     return row.file_path;
+  }
+
+  remove(trackId: number): void {
+    this.ensureTrackExists(trackId);
+    const row = this.getStemRow(trackId);
+    if (!row) {
+      throw new NotFoundException('No AI stem for this track');
+    }
+    this.deleteStemFiles(trackId, row);
+    this.db.raw.prepare(`DELETE FROM karaoke_stems WHERE track_id = ?`).run(trackId);
   }
 
   private enqueue(trackId: number): void {
@@ -389,17 +399,27 @@ export class SeparationService implements OnModuleInit {
     /* no-op: unsupported is per-request when demucs missing */
   }
 
-  private invalidateStem(trackId: number, track: TrackRow): void {
-    const row = this.getStemRow(trackId);
-    if (row?.file_path && existsSync(row.file_path)) {
-      try {
-        rmSync(row.file_path, { force: true });
-      } catch {
-        /* ignore */
-      }
-    }
+  private invalidateStem(trackId: number): void {
+    this.deleteStemFiles(trackId, this.getStemRow(trackId));
     this.db.raw.prepare(`DELETE FROM karaoke_stems WHERE track_id = ?`).run(trackId);
     this.request(trackId);
+  }
+
+  private deleteStemFiles(trackId: number, row: KaraokeStemRow | undefined): void {
+    const paths = new Set<string>();
+    if (row?.file_path) {
+      paths.add(row.file_path);
+    }
+    paths.add(join(this.config.stemCachePath, `${trackId}.mp3`));
+    for (const filePath of paths) {
+      if (existsSync(filePath)) {
+        try {
+          rmSync(filePath, { force: true });
+        } catch {
+          /* ignore */
+        }
+      }
+    }
   }
 
   private isStemFresh(row: KaraokeStemRow, track: TrackRow): boolean {

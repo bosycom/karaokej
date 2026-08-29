@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { LibraryStatusDto } from '@karaokej/shared';
 import { KaraokeModeControl } from '../components/KaraokeModeControl';
+import { UiScaleControl } from '../components/UiScaleControl';
 import { PlayerBar } from '../components/PlayerBar';
 import { ProcessingText } from '../components/ProcessingText';
 import {
@@ -74,6 +75,7 @@ export function SettingsPage() {
           <span className={`pill ${isPlayer ? 'ok' : 'muted'}`}>
             {isPlayer ? 'This device plays audio' : 'Follow only'}
           </span>
+          <UiScaleControl />
           <Link className="topbar-link" to="/">
             Back to library
           </Link>

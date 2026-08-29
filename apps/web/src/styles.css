@@ -17,6 +17,10 @@
   box-sizing: border-box;
 }
 
+html {
+  font-size: calc(100% * var(--ui-scale, 1));
+}
+
 html,
 body,
 #root {
@@ -218,6 +222,13 @@ input[type='text'],
 
 a.icon-btn {
   line-height: 0;
+}
+
+.ui-scale-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  flex-shrink: 0;
 }
 
 .icon-menu {

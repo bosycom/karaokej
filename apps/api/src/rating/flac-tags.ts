@@ -3,9 +3,11 @@ import { open } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
 import { atomicReplace } from './atomic-replace';
 import {
+  applyMetadataComments,
   parseVorbisCommentPacket,
   serializeVorbisCommentPacket,
   setRatingComment,
+  type VorbisMetadataInput,
 } from './vorbis-comment';
 
 const FLAC_MAGIC = Buffer.from('fLaC');
@@ -64,6 +66,35 @@ async function readBlocks(absolutePath: string): Promise<{
   }
 }
 
+function applyVorbisMetadata(
+  blocks: FlacBlock[],
+  metadata: VorbisMetadataInput,
+): FlacBlock[] {
+  const next = blocks.map((block) => ({ ...block }));
+  const index = next.findIndex((block) => block.type === BLOCK_VORBIS_COMMENT);
+  if (index >= 0) {
+    const parsed = parseVorbisCommentPacket(next[index].data);
+    next[index] = {
+      type: BLOCK_VORBIS_COMMENT,
+      data: serializeVorbisCommentPacket(
+        parsed.vendor,
+        applyMetadataComments(parsed.comments, metadata),
+      ),
+    };
+    return next;
+  }
+  const comment = {
+    type: BLOCK_VORBIS_COMMENT,
+    data: serializeVorbisCommentPacket(
+      'karaokej',
+      applyMetadataComments([], metadata),
+    ),
+  };
+  const insertAt = next.length > 0 ? 1 : 0;
+  next.splice(insertAt, 0, comment);
+  return next;
+}
+
 function applyRating(blocks: FlacBlock[], rating: number): FlacBlock[] {
   const next = blocks.map((block) => ({ ...block }));
   const index = next.findIndex((block) => block.type === BLOCK_VORBIS_COMMENT);
@@ -118,12 +149,11 @@ function fitWithPadding(blocks: FlacBlock[], targetMetaBytes: number): Buffer | 
   return encodeMetadata(padded);
 }
 
-export async function writeFlacRating(
+async function writeFlacBlocks(
   absolutePath: string,
-  rating: number,
+  updated: FlacBlock[],
+  audioOffset: number,
 ): Promise<void> {
-  const { blocks, audioOffset } = await readBlocks(absolutePath);
-  const updated = applyRating(blocks, rating);
   const inPlace = fitWithPadding(updated, audioOffset);
   if (inPlace) {
     const fh = await open(absolutePath, 'r+');
@@ -143,4 +173,22 @@ export async function writeFlacRating(
     });
     await pipeline(createReadStream(absolutePath, { start: audioOffset }), out);
   });
+}
+
+export async function writeFlacMetadata(
+  absolutePath: string,
+  metadata: VorbisMetadataInput,
+): Promise<void> {
+  const { blocks, audioOffset } = await readBlocks(absolutePath);
+  const updated = applyVorbisMetadata(blocks, metadata);
+  await writeFlacBlocks(absolutePath, updated, audioOffset);
+}
+
+export async function writeFlacRating(
+  absolutePath: string,
+  rating: number,
+): Promise<void> {
+  const { blocks, audioOffset } = await readBlocks(absolutePath);
+  const updated = applyRating(blocks, rating);
+  await writeFlacBlocks(absolutePath, updated, audioOffset);
 }

@@ -56,6 +56,30 @@ describe('resolveTrackDurationMs', () => {
     expect(parseFile).not.toHaveBeenCalled();
   });
 
+  it('ignores untrusted header-only MP3 duration from music-metadata', async () => {
+    const parseFile = vi.fn();
+    const buffer = Buffer.alloc(512);
+    buffer.write('Xing', 200, 'latin1');
+    buffer.writeUInt32BE(0x01, 204);
+    buffer.writeUInt32BE(417, 208);
+    const result = await resolveTrackDurationMs(
+      '/music/song.mp3',
+      metaWithDuration(16.2),
+      parseFile,
+      5000,
+      'song.mp3',
+      {
+        durationMode: 'full_fallback',
+        headerBuffer: buffer,
+        fileSize: 4_000_000,
+      },
+    );
+    expect(result.usedFallback).toBe(false);
+    expect(result.durationMs).not.toBe(16_200);
+    expect(result.durationMs).toBeGreaterThan(0);
+    expect(parseFile).not.toHaveBeenCalled();
+  });
+
   it('uses mp3 header duration before full decode', async () => {
     const parseFile = vi.fn();
     const buffer = Buffer.alloc(512);
