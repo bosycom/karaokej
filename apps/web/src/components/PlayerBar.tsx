@@ -1,32 +1,58 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { FiPause, FiPlay, FiSkipForward } from 'react-icons/fi';
 import { TrackDto } from '@karaokej/shared';
 import { api } from '../api';
 import { formatDuration, lyricBadge } from '../format';
+import {
+  seekBarDisplayedMs,
+  seekBarDurationLabelMs,
+  seekBarMaxMs,
+  seekChangeAction,
+} from '../player/seekBar';
 import { useSession, trackLabel } from '../session/SessionProvider';
 import { LyricSearchModal } from './LyricSearchModal';
 import { ProcessingText } from './ProcessingText';
 import { StarRating } from './StarRating';
 
 export function PlayerBar({ compact = false }: { compact?: boolean }) {
-  const { state, positionMs, isPlayer } = useSession();
+  const { state, positionMs, liveAudioDurationMs, isPlayer } = useSession();
   const [scrub, setScrub] = useState<number | null>(null);
   const [fetchingLyrics, setFetchingLyrics] = useState(false);
   const [lyricSearchTrack, setLyricSearchTrack] = useState<TrackDto | null>(null);
+  const pointerDownRef = useRef(false);
   const track = state.playback.currentTrack;
 
   useEffect(() => {
     setFetchingLyrics(false);
     setLyricSearchTrack(null);
+    setScrub(null);
   }, [track?.id]);
 
-  const duration = track?.durationMs ?? 0;
+  useEffect(() => {
+    setScrub(null);
+  }, [state.playback.seekSeq]);
+
+  const trackDurationMs = track?.durationMs ?? 0;
+  const durationLabelMs = seekBarDurationLabelMs({
+    trackDurationMs,
+    liveAudioDurationMs,
+  });
+  const seekMax = seekBarMaxMs({
+    trackDurationMs,
+    liveAudioDurationMs,
+    positionMs,
+  });
+  const displayed = seekBarDisplayedMs({ scrub, positionMs });
   const playing = state.playback.status === 'playing';
-  const displayed = scrub ?? Math.min(positionMs, duration || positionMs);
   const playLabel = playing ? 'Pause' : 'Play';
   const badge = track ? lyricBadge(track.lyricStatus) : null;
   const canFetch = track != null && track.lyricStatus !== 'present';
   const fetchLabel = fetchingLyrics ? 'Fetching…' : 'Fetch lyric';
+
+  const commitSeek = (value: number) => {
+    setScrub(null);
+    void api.seek(value);
+  };
 
   return (
     <footer className={`player-bar ${compact ? 'compact' : ''}`}>
@@ -34,7 +60,7 @@ export function PlayerBar({ compact = false }: { compact?: boolean }) {
         <strong>{trackLabel(track)}</strong>
         {!compact && (
           <span>
-            {formatDuration(displayed)} / {formatDuration(duration)}
+            {formatDuration(displayed)} / {formatDuration(durationLabelMs)}
           </span>
         )}
         {track && badge && (canFetch ? (
@@ -113,14 +139,26 @@ export function PlayerBar({ compact = false }: { compact?: boolean }) {
           className="seek"
           type="range"
           min={0}
-          max={Math.max(duration, 1)}
-          value={displayed}
-          onChange={(event) => setScrub(Number(event.target.value))}
-          onPointerUp={() => {
-            if (scrub != null) {
-              void api.seek(scrub);
-              setScrub(null);
+          max={seekMax}
+          value={Math.min(displayed, seekMax)}
+          onPointerDown={() => {
+            pointerDownRef.current = true;
+          }}
+          onPointerUp={(event) => {
+            pointerDownRef.current = false;
+            commitSeek(Number(event.currentTarget.value));
+          }}
+          onPointerCancel={() => {
+            pointerDownRef.current = false;
+            setScrub(null);
+          }}
+          onChange={(event) => {
+            const value = Number(event.target.value);
+            if (seekChangeAction(pointerDownRef.current) === 'preview') {
+              setScrub(value);
+              return;
             }
+            commitSeek(value);
           }}
           aria-label="Seek"
         />
