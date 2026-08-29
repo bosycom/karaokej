@@ -27,6 +27,26 @@ body,
   font-family: var(--font);
 }
 
+.boot-error {
+  box-sizing: border-box;
+  min-height: 100vh;
+  padding: 1.5rem;
+  background: var(--bg);
+}
+
+.boot-error h1 {
+  margin: 0 0 0.75rem;
+  color: var(--gold);
+  font-size: 1.25rem;
+}
+
+.boot-error pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--danger);
+}
+
 button,
 input {
   font: inherit;
@@ -90,6 +110,10 @@ input[type='text'],
 .karaoke-header h1 {
   margin: 0;
   letter-spacing: 0.04em;
+}
+
+.brand-kara {
+  color: var(--muted);
 }
 
 .eyebrow {
@@ -327,7 +351,8 @@ a.icon-btn {
   gap: 0.75rem;
 }
 
-.player-track .badge {
+.player-track .badge,
+.player-track .status-icon {
   flex-shrink: 0;
 }
 
@@ -478,6 +503,50 @@ button.badge-fetch:hover:not(:disabled) .badge-action {
   display: inline;
 }
 
+.status-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem;
+  min-width: 1.6rem;
+  min-height: 1.6rem;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  line-height: 0;
+}
+
+.status-icon svg {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.status-icon.ok {
+  color: var(--ok);
+}
+
+.status-icon.warn {
+  color: var(--danger);
+}
+
+.status-icon.muted {
+  color: var(--muted);
+}
+
+button.status-icon {
+  cursor: pointer;
+  font: inherit;
+}
+
+button.status-icon:disabled {
+  cursor: not-allowed;
+}
+
+button.status-icon.status-icon-busy {
+  min-width: auto;
+  padding: 0.2rem 0.35rem;
+}
+
 .toolbar {
   border-bottom: 1px solid var(--line);
   background: var(--bg-raise);
@@ -559,28 +628,27 @@ button.badge-fetch:hover:not(:disabled) .badge-action {
   line-height: 1.45;
 }
 
-.search-miss-links {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.55rem 1rem;
-}
-
-.search-miss-links a {
-  color: var(--gold);
-  text-decoration: none;
-}
-
-.search-miss-links a:hover {
-  text-decoration: underline;
-}
-
 .search-miss-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.55rem;
+}
+
+a.search-miss-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  background: var(--bg-raise-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.45rem 0.9rem;
+}
+
+a.search-miss-btn:hover {
+  border-color: var(--gold-deep);
+  color: var(--gold);
 }
 
 .search-miss-hint,
@@ -865,6 +933,22 @@ button.badge-fetch:hover:not(:disabled) .badge-action {
   list-style: none;
   margin: 1rem 0;
   padding: 0;
+}
+
+.track-list {
+  container-type: inline-size;
+}
+
+@container (max-width: 40rem) {
+  .track-list li {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .track-list .track-main,
+  .track-list .track-meta {
+    flex: 1 1 100%;
+  }
 }
 
 .track-list li,
@@ -1387,9 +1471,22 @@ button.badge-fetch:hover:not(:disabled) .badge-action {
   font-size: 0.8rem;
 }
 
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
 .modal-title {
-  margin: 0 0 0.75rem;
+  margin: 0;
   font-size: 1.35rem;
+}
+
+.modal-close {
+  flex-shrink: 0;
+  margin: -0.2rem -0.35rem 0 0;
 }
 
 .modal-body {
@@ -1448,6 +1545,33 @@ button.badge-fetch:hover:not(:disabled) .badge-action {
   margin-top: 0.75rem;
 }
 
+.metadata-form {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.metadata-form label {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+}
+
+.metadata-form input {
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.55rem;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.metadata-rating {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.9rem;
+}
+
 .lyric-search-input {
   flex: 1;
   min-width: 0;
@@ -1497,6 +1621,28 @@ button.badge-fetch:hover:not(:disabled) .badge-action {
 .lyric-search-hit.selected {
   background: rgba(212, 175, 55, 0.12);
   box-shadow: inset 0 0 0 1px var(--gold-deep);
+}
+
+.search-history-list li {
+  padding: 0;
+}
+
+.search-history-term {
+  display: block;
+  width: 100%;
+  padding: 0.65rem 0.75rem;
+  border: 0;
+  border-radius: 0.55rem;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.search-history-term:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: transparent;
+  color: var(--gold);
 }
 
 .lyric-search-hit-title {

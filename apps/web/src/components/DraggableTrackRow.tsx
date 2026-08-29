@@ -1,10 +1,11 @@
 import { useDraggable } from '@dnd-kit/core';
-import { FiPlay } from 'react-icons/fi';
+import { FiEdit2, FiPlay, FiTag } from 'react-icons/fi';
 import { TrackDto } from '@karaokej/shared';
 import { api } from '../api';
 import { trackDragId } from '../dnd/dragIds';
-import { formatDuration, karaokeStemBadge, lyricBadge, trackSubtitleSegments } from '../format';
+import { formatDuration, karaokeStemBadge, trackSubtitleSegments } from '../format';
 import { IconMenu } from './IconMenu';
+import { LyricStatusBadge } from './LyricStatusBadge';
 import { ProcessingText } from './ProcessingText';
 import { StarRating } from './StarRating';
 import { TrackSearchTerm } from './TrackSearchTerm';
@@ -16,6 +17,7 @@ interface DraggableTrackRowProps {
   onRate: (trackId: number, rating: number) => void;
   onApplySearchTerm: (term: string) => void;
   onPlay: (track: TrackDto) => void;
+  onEditMetadata: (track: TrackDto) => void;
 }
 
 export function DraggableTrackRow({
@@ -25,15 +27,13 @@ export function DraggableTrackRow({
   onRate,
   onApplySearchTerm,
   onPlay,
+  onEditMetadata,
 }: DraggableTrackRowProps) {
   const { listeners, setNodeRef, isDragging } = useDraggable({
     id: trackDragId(track.id),
     data: { kind: 'track', track },
   });
-  const badge = lyricBadge(track.lyricStatus);
   const stemBadge = karaokeStemBadge(track.karaokeStemStatus);
-  const canFetch = track.lyricStatus !== 'present';
-  const fetchLabel = fetching ? 'Fetching…' : 'Fetch lyric';
   const tagsPending = track.metadataStatus === 'pending';
 
   const copyFilePath = async () => {
@@ -72,23 +72,20 @@ export function DraggableTrackRow({
         </span>
       </div>
       <div className="track-meta">
-        {canFetch ? (
-          <button
-            type="button"
-            className={`badge ${badge.tone} badge-fetch`}
-            disabled={fetching}
-            onClick={() => onFetchLyrics(track.id)}
-            title={fetchLabel}
-            aria-label={fetchLabel}
+        <LyricStatusBadge
+          status={track.lyricStatus}
+          fetching={fetching}
+          onFetch={() => onFetchLyrics(track.id)}
+        />
+        {tagsPending ? (
+          <span
+            className="status-icon warn"
+            title="Filename only; tags not read yet"
+            aria-label="Tags pending"
           >
-            <span className="badge-idle">
-              {fetching ? <ProcessingText>Fetching…</ProcessingText> : badge.label}
-            </span>
-            {!fetching && <span className="badge-action">Fetch lyric</span>}
-          </button>
-        ) : (
-          <span className={`badge ${badge.tone}`}>{badge.label}</span>
-        )}
+            <FiTag aria-hidden />
+          </span>
+        ) : null}
         {stemBadge ? (
           <span className={`badge ${stemBadge.tone}`} title={stemBadge.title}>
             {stemBadge.processing ? (
@@ -96,11 +93,6 @@ export function DraggableTrackRow({
             ) : (
               stemBadge.label
             )}
-          </span>
-        ) : null}
-        {tagsPending ? (
-          <span className="badge warn" title="Tags not read yet">
-            Tags pending
           </span>
         ) : null}
         <span className="time">{formatDuration(track.durationMs)}</span>
@@ -118,6 +110,15 @@ export function DraggableTrackRow({
           onClick={() => onPlay(track)}
         >
           <FiPlay aria-hidden />
+        </button>
+        <button
+          type="button"
+          className="icon-btn"
+          title={`Edit metadata for ${track.title}`}
+          aria-label={`Edit metadata for ${track.title}`}
+          onClick={() => onEditMetadata(track)}
+        >
+          <FiEdit2 aria-hidden />
         </button>
         <IconMenu
           ariaLabel={`Actions for ${track.title}`}
