@@ -20,7 +20,7 @@ import { SessionService } from '../session/session.service';
 import { LrclibClient, LrclibRecord } from './lrclib.client';
 import { parseLrc } from './lrc-parser';
 
-const NOT_FOUND_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
+const NOT_FOUND_COOLDOWN_MS = 60 * 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class LyricsService {
@@ -138,6 +138,21 @@ export class LyricsService {
       throw new BadRequestException('Selected record has no synced lyrics');
     }
     await this.persistRecord(track, record, synced);
+    this.session.broadcast();
+    const updated = this.library.getTrack(trackId);
+    if (!updated) {
+      throw new NotFoundException('Track not found');
+    }
+    return trackToDto(updated);
+  }
+
+  async markUnavailable(trackId: number): Promise<TrackDto> {
+    const track = this.library.getTrack(trackId);
+    if (!track) {
+      throw new NotFoundException('Track not found');
+    }
+    this.updateLyricState(track.id, 'unavailable', null, null);
+    this.remember(track, 'unavailable', null, null);
     this.session.broadcast();
     const updated = this.library.getTrack(trackId);
     if (!updated) {

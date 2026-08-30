@@ -79,6 +79,7 @@ export function LibraryPage() {
   const [lyricSearchTrack, setLyricSearchTrack] = useState<TrackDto | null>(null);
   const [metadataTrack, setMetadataTrack] = useState<TrackDto | null>(null);
   const [removeStemTrack, setRemoveStemTrack] = useState<TrackDto | null>(null);
+  const [deleteFileTrack, setDeleteFileTrack] = useState<TrackDto | null>(null);
   const limit = 15;
 
   const loadTracks = async (
@@ -292,6 +293,15 @@ export function LibraryPage() {
   };
 
   const fetchTrackLyrics = async (trackId: number) => {
+    const existing = tracks.find((item) => item.id === trackId);
+    if (
+      existing?.lyricStatus === 'not_found' ||
+      existing?.lyricStatus === 'unavailable'
+    ) {
+      setLyricSearchTrack(existing);
+      return;
+    }
+
     setFetchingIds((prev) => new Set(prev).add(trackId));
     try {
       const updated = await api.fetchTrackLyrics(trackId);
@@ -422,6 +432,17 @@ export function LibraryPage() {
     setClearQueueModalOpen(true);
   };
 
+  const handleShuffleQueue = () => {
+    void (async () => {
+      try {
+        await api.shuffleQueue();
+        setError(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    })();
+  };
+
   const runClearQueue = async (mode: 'all' | 'except_current' | 'before_current') => {
     setClearQueueModalOpen(false);
     try {
@@ -442,6 +463,31 @@ export function LibraryPage() {
 
   const handleRemoveAiStem = (track: TrackDto) => {
     setRemoveStemTrack(track);
+  };
+
+  const handleDeleteFile = (track: TrackDto) => {
+    setDeleteFileTrack(track);
+  };
+
+  const confirmDeleteFile = async () => {
+    if (!deleteFileTrack) {
+      return;
+    }
+    const trackId = deleteFileTrack.id;
+    setDeleteFileTrack(null);
+    try {
+      await api.deleteTrack(trackId);
+      setTracks((prev) => prev.filter((track) => track.id !== trackId));
+      setTotal((prev) => Math.max(0, prev - 1));
+      if (tracks.length === 1 && page > 1) {
+        setPage(page - 1);
+      } else {
+        await loadTracks(query, page, minRating);
+      }
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   };
 
   const confirmRemoveAiStem = async () => {
@@ -494,7 +540,7 @@ export function LibraryPage() {
     })();
   };
 
-  const handleQueueTrack = () => {
+  const handleQueueTrackAtEnd = () => {
     if (!playModalTrack) {
       return;
     }
@@ -502,7 +548,23 @@ export function LibraryPage() {
     setPlayModalTrack(null);
     void (async () => {
       try {
-        await api.addToQueue(trackId);
+        await api.addToQueue(trackId, 'end');
+        setError(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    })();
+  };
+
+  const handleQueueTrackAfterCurrent = () => {
+    if (!playModalTrack) {
+      return;
+    }
+    const trackId = playModalTrack.id;
+    setPlayModalTrack(null);
+    void (async () => {
+      try {
+        await api.addToQueue(trackId, 'after_current');
         setError(null);
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
@@ -581,7 +643,7 @@ export function LibraryPage() {
               <ul className="modal-help-list">
                 <li>
                   Queries LRCLIB for tracks that still need lyrics, including retries
-                  for older &ldquo;not found&rdquo; results after a week.
+                  for older &ldquo;not found&rdquo; results after 60 days.
                 </li>
                 <li>Writes <code>.lrc</code> files next to the audio files.</li>
                 <li>
@@ -735,6 +797,7 @@ export function LibraryPage() {
         onRemovePlaylistItem={(itemId) => void handleRemovePlaylistItem(itemId)}
         onPlayPlaylist={handlePlayPlaylist}
         onClearQueue={handleClearQueue}
+        onShuffleQueue={handleShuffleQueue}
         onPlaylistChanged={setPlaylistDetail}
         onPlaylistsRefresh={() => void loadPlaylists()}
         library={
@@ -772,38 +835,43 @@ export function LibraryPage() {
                 Reset
               </button>
             </form>
-            {tracks.length === 0 ? (
-              query.trim() ? (
-                <SearchMissFallback
-                  query={query.trim()}
-                  ytdlpAvailable={status?.ytdlpAvailable ?? false}
-                  ytsaverAvailable={status?.ytsaverAvailable ?? false}
-                  downloadRunning={state.jobs.download.running}
-                  downloadMessage={state.jobs.download.message}
-                  onTrackDownloaded={(track) => {
-                    void loadTracks(query, page, minRating, hideDuplicates);
-                    handlePlayTrack(track);
-                  }}
-                />
-              ) : (
-                <p className="empty">No songs match. Scan the library if it is empty.</p>
-              )
+            {tracks.length === 0 && !query.trim() ? (
+              <p className="empty">No songs match. Scan the library if it is empty.</p>
             ) : (
-              <ul className="track-list">
-                {tracks.map((track) => (
-                  <DraggableTrackRow
-                    key={track.id}
-                    track={track}
-                    fetching={fetchingIds.has(track.id)}
-                    onFetchLyrics={(trackId) => void fetchTrackLyrics(trackId)}
-                    onRate={setTrackRating}
-                    onApplySearchTerm={applySearch}
-                    onPlay={handlePlayTrack}
-                    onEditMetadata={setMetadataTrack}
-                    onRemoveAiStem={handleRemoveAiStem}
+              <>
+                {tracks.length > 0 ? (
+                  <ul className="track-list">
+                    {tracks.map((track) => (
+                      <DraggableTrackRow
+                        key={track.id}
+                        track={track}
+                        fetching={fetchingIds.has(track.id)}
+                        onFetchLyrics={(trackId) => void fetchTrackLyrics(trackId)}
+                        onRate={setTrackRating}
+                        onApplySearchTerm={applySearch}
+                        onPlay={handlePlayTrack}
+                        onEditMetadata={setMetadataTrack}
+                        onRemoveAiStem={handleRemoveAiStem}
+                        onDeleteFile={handleDeleteFile}
+                      />
+                    ))}
+                  </ul>
+                ) : null}
+                {query.trim() ? (
+                  <SearchMissFallback
+                    query={query.trim()}
+                    hasLibraryMatches={tracks.length > 0}
+                    ytdlpAvailable={status?.ytdlpAvailable ?? false}
+                    ytsaverAvailable={status?.ytsaverAvailable ?? false}
+                    downloadRunning={state.jobs.download.running}
+                    downloadMessage={state.jobs.download.message}
+                    onTrackDownloaded={(track) => {
+                      void loadTracks(query, page, minRating, hideDuplicates);
+                      handlePlayTrack(track);
+                    }}
                   />
-                ))}
-              </ul>
+                ) : null}
+              </>
             )}
             <div className="pager">
               <button
@@ -907,7 +975,8 @@ export function LibraryPage() {
           open={playModalTrack != null}
           trackTitle={playModalTrack.title}
           onPlayNow={handlePlayTrackNow}
-          onQueue={handleQueueTrack}
+          onQueueAtEnd={handleQueueTrackAtEnd}
+          onQueueAfterCurrent={handleQueueTrackAfterCurrent}
           onCancel={() => setPlayModalTrack(null)}
         />
       )}
@@ -923,6 +992,31 @@ export function LibraryPage() {
           Remove the AI instrumental stem for{' '}
           <strong>{removeStemTrack?.title}</strong>? This deletes the cached
           file. You can generate it again later.
+        </p>
+      </Modal>
+
+      <Modal
+        open={deleteFileTrack != null}
+        title="Delete file"
+        confirmLabel="Delete"
+        onConfirm={() => void confirmDeleteFile()}
+        onCancel={() => setDeleteFileTrack(null)}
+      >
+        <p>
+          Permanently delete <strong>{deleteFileTrack?.title}</strong> from disk
+          and remove it from the library?
+          {deleteFileTrack &&
+          (state.playback.currentTrack?.id === deleteFileTrack.id ||
+            state.queue.some((item) => item.track.id === deleteFileTrack.id)) ? (
+            <>
+              {' '}
+              This track is in the queue
+              {state.playback.currentTrack?.id === deleteFileTrack.id
+                ? ' and is currently playing'
+                : ''}
+              ; playback will stop or advance.
+            </>
+          ) : null}
         </p>
       </Modal>
 

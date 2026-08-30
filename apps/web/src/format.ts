@@ -8,6 +8,18 @@ export function formatDuration(ms: number | null | undefined): string {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
+export const LYRIC_DURATION_MATCH_TOLERANCE_MS = 2000;
+
+export function lyricDurationMatches(
+  trackDurationMs: number | null | undefined,
+  hitDurationMs: number | null | undefined,
+): boolean {
+  if (trackDurationMs == null || hitDurationMs == null) {
+    return false;
+  }
+  return Math.abs(hitDurationMs - trackDurationMs) <= LYRIC_DURATION_MATCH_TOLERANCE_MS;
+}
+
 export type TrackSubtitleSegment =
   | { kind: 'artist'; text: string; searchable: boolean }
   | { kind: 'album'; text: string; searchable: true }
@@ -85,6 +97,8 @@ export function lyricBadge(status: string): {
       return { label: 'Instrumental', tone: 'muted' };
     case 'not_found':
       return { label: 'No lyrics', tone: 'warn' };
+    case 'unavailable':
+      return { label: 'Unavailable', tone: 'muted', icon: 'lyrics' };
     case 'error':
       return { label: 'Lyric error', tone: 'warn' };
     default:

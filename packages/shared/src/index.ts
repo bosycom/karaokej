@@ -7,6 +7,7 @@ export type LyricStatus =
   | 'present'
   | 'instrumental'
   | 'not_found'
+  | 'unavailable'
   | 'error';
 
 export type LyricSource = 'local' | 'lrclib';

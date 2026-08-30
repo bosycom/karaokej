@@ -73,6 +73,13 @@ export function PlayerBar({ compact = false }: { compact?: boolean }) {
             onFetch={
               canFetch
                 ? async () => {
+                    if (
+                      track.lyricStatus === 'not_found' ||
+                      track.lyricStatus === 'unavailable'
+                    ) {
+                      setLyricSearchTrack(track);
+                      return;
+                    }
                     setFetchingLyrics(true);
                     try {
                       const updated = await api.fetchTrackLyrics(track.id);

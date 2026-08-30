@@ -84,6 +84,10 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ lrclibId }),
     }),
+  markLyricsUnavailable: (trackId: number) =>
+    request<TrackDto>(`/api/tracks/${trackId}/lyrics/unavailable`, {
+      method: 'POST',
+    }),
   tracks: (
     q: string,
     page: number,
@@ -118,9 +122,14 @@ export const api = {
     }),
   trackPath: (trackId: number) =>
     request<TrackPathDto>(`/api/tracks/${trackId}/path`),
+  deleteTrack: (trackId: number) =>
+    request<void>(`/api/tracks/${trackId}`, { method: 'DELETE' }),
   lyrics: (trackId: number) => request<LyricsDto>(`/api/tracks/${trackId}/lyrics`),
-  addToQueue: (trackId: number) =>
-    request<QueueItemDto[]>('/api/queue', { method: 'POST', body: JSON.stringify({ trackId }) }),
+  addToQueue: (trackId: number, placement: 'end' | 'after_current' = 'end') =>
+    request<QueueItemDto[]>('/api/queue', {
+      method: 'POST',
+      body: JSON.stringify({ trackId, placement }),
+    }),
   playTrackNow: async (trackId: number) => {
     const queue = await request<QueueItemDto[]>('/api/queue', {
       method: 'POST',
@@ -146,6 +155,8 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify({ ids }),
     }),
+  shuffleQueue: () =>
+    request<QueueItemDto[]>('/api/queue/shuffle', { method: 'POST' }),
   play: () => request('/api/playback/play', { method: 'POST' }),
   pause: () => request('/api/playback/pause', { method: 'POST' }),
   seek: (positionMs: number) =>

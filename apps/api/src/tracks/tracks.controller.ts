@@ -102,6 +102,11 @@ export class TracksController {
     return this.lyrics.applyRecord(id, lrclibId);
   }
 
+  @Post(':id/lyrics/unavailable')
+  markLyricsUnavailable(@Param('id', ParseIntPipe) id: number) {
+    return this.lyrics.markUnavailable(id);
+  }
+
   @Put(':id/rating')
   setRating(
     @Param('id', ParseIntPipe) id: number,
