@@ -25,6 +25,7 @@ import {
   LibraryFiltersModal,
 } from '../components/LibraryFiltersModal';
 import { ClearQueueModal } from '../components/ClearQueueModal';
+import { CoverArtModal } from '../components/CoverArtModal';
 import { Modal } from '../components/Modal';
 import { KaraokeModeControl } from '../components/KaraokeModeControl';
 import { PlayerBar } from '../components/PlayerBar';
@@ -38,7 +39,7 @@ import { TrackMetadataModal } from '../components/TrackMetadataModal';
 import { SearchHistoryModal } from '../components/SearchHistoryModal';
 import { SearchMissFallback } from '../components/SearchMissFallback';
 import { WorkspaceDnd } from '../components/WorkspaceDnd';
-import { addSearchHistoryTerm, readSearchHistory } from '../searchHistory';
+import { addSearchHistoryTerm, clearSearchHistory, readSearchHistory } from '../searchHistory';
 import { MODAL_IDS } from '../modals/dismissedModals';
 import { useConfirmModal } from '../modals/useConfirmModal';
 import { pageWindow } from '../pagination/pageWindow';
@@ -80,6 +81,7 @@ export function LibraryPage() {
   const [metadataTrack, setMetadataTrack] = useState<TrackDto | null>(null);
   const [removeStemTrack, setRemoveStemTrack] = useState<TrackDto | null>(null);
   const [deleteFileTrack, setDeleteFileTrack] = useState<TrackDto | null>(null);
+  const [coverTrack, setCoverTrack] = useState<TrackDto | null>(null);
   const limit = 15;
 
   const loadTracks = async (
@@ -341,6 +343,14 @@ export function LibraryPage() {
       return;
     }
     confirmModal.request(MODAL_IDS.lyricsHelp, () => api.fetchLyrics());
+  };
+
+  const handleCreateThumbnailsClick = () => {
+    if (state.jobs.covers.running) {
+      void api.cancelThumbnails();
+      return;
+    }
+    confirmModal.request(MODAL_IDS.coversHelp, () => api.createThumbnails());
   };
 
   const handleCreatePlaylist = async (name: string) => {
@@ -654,18 +664,45 @@ export function LibraryPage() {
               </ul>
             ),
           }
-        : confirmModal.dismissId === MODAL_IDS.playlistDelete
+        : confirmModal.dismissId === MODAL_IDS.coversHelp
           ? {
-              title: 'Delete playlist',
-              confirmLabel: 'Delete',
+              title: 'Create thumbnails',
+              confirmLabel: 'Start',
               body: (
-                <p>
-                  This permanently deletes the playlist and its item order. Audio files
-                  in your library are not affected.
-                </p>
+                <ul className="modal-help-list">
+                  <li>
+                    Builds one pair of cover thumbnails per album rather than per
+                    track, so a large library stays small on disk.
+                  </li>
+                  <li>
+                    Artwork comes from a sidecar image in the album folder
+                    (<code>cover.jpg</code>, <code>folder.jpg</code>, and similar)
+                    or, failing that, the front cover embedded in the audio file.
+                  </li>
+                  <li>
+                    Albums without artwork are remembered as empty and are not
+                    inspected again until the files change.
+                  </li>
+                  <li>
+                    Thumbnails are also created on demand as you browse; this pass
+                    just does the whole library at once.
+                  </li>
+                  <li>The same toolbar button cancels a running pass.</li>
+                </ul>
               ),
             }
-          : null;
+          : confirmModal.dismissId === MODAL_IDS.playlistDelete
+            ? {
+                title: 'Delete playlist',
+                confirmLabel: 'Delete',
+                body: (
+                  <p>
+                    This permanently deletes the playlist and its item order. Audio files
+                    in your library are not affected.
+                  </p>
+                ),
+              }
+            : null;
 
   const scanJob = state.jobs.scan;
   const scanProgress =
@@ -735,6 +772,13 @@ export function LibraryPage() {
             ? 'Cancel lyrics'
             : 'Fetch missing lyrics'}
         </button>
+        <button
+          type="button"
+          disabled={!state.jobs.covers.running && (status?.trackCount ?? 0) === 0}
+          onClick={handleCreateThumbnailsClick}
+        >
+          {state.jobs.covers.running ? 'Cancel thumbnails' : 'Create thumbnails'}
+        </button>
         <div className="toolbar-status">
           <p className="status-copy">
             {status?.libraryConfigured
@@ -760,6 +804,12 @@ export function LibraryPage() {
               <>
                 {' · '}
                 <ProcessingText>{state.jobs.download.message}</ProcessingText>
+              </>
+            ) : null}
+            {state.jobs.covers.running && state.jobs.covers.message ? (
+              <>
+                {' · '}
+                <ProcessingText>{state.jobs.covers.message}</ProcessingText>
               </>
             ) : null}
           </p>
@@ -800,6 +850,7 @@ export function LibraryPage() {
         onShuffleQueue={handleShuffleQueue}
         onPlaylistChanged={setPlaylistDetail}
         onPlaylistsRefresh={() => void loadPlaylists()}
+        onShowCover={setCoverTrack}
         library={
           <section className="library-pane">
             <form className="search" onSubmit={onSearch}>
@@ -853,6 +904,7 @@ export function LibraryPage() {
                         onEditMetadata={setMetadataTrack}
                         onRemoveAiStem={handleRemoveAiStem}
                         onDeleteFile={handleDeleteFile}
+                        onShowCover={setCoverTrack}
                       />
                     ))}
                   </ul>
@@ -954,6 +1006,12 @@ export function LibraryPage() {
         onClose={() => setScanIssuesOpen(false)}
       />
 
+      <CoverArtModal
+        track={coverTrack}
+        onClose={() => setCoverTrack(null)}
+        onSearch={applySearch}
+      />
+
       {playModalPlaylist && (
         <PlayPlaylistModal
           open={playModalPlaylistId != null}
@@ -1037,6 +1095,10 @@ export function LibraryPage() {
           setHistoryOpen(false);
           applySearch(term);
         }}
+        onClear={() => {
+          clearSearchHistory();
+          setSearchHistory([]);
+        }}
         onClose={() => setHistoryOpen(false)}
       />
 
@@ -1066,7 +1128,7 @@ export function LibraryPage() {
         }}
       />
 
-      <PlayerBar />
+      <PlayerBar onShowCover={setCoverTrack} />
     </div>
   );
 }

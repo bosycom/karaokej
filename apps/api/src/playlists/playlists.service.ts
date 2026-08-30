@@ -12,6 +12,7 @@ import {
 } from '@karaokej/shared';
 import { DbService } from '../db/db.service';
 import { PlaylistItemRow, PlaylistRow, TrackRow, trackToDto } from '../db/types';
+import { coverInfoForTrack, loadCoverInfoForTracks } from '../covers/cover-lookup';
 import { QueueService } from '../queue/queue.service';
 
 @Injectable()
@@ -209,12 +210,14 @@ export class PlaylistsService {
       }
     >;
 
+    const coverByGroup = loadCoverInfoForTracks(this.db.raw, rows);
+
     return rows.map((row) => ({
       id: row.item_id,
       position: row.item_position,
       addedAt: new Date(row.item_added_at).toISOString(),
       available: row.available === 1,
-      track: trackToDto(row),
+      track: trackToDto(row, null, coverInfoForTrack(coverByGroup, row)),
     }));
   }
 

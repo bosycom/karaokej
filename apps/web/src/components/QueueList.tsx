@@ -8,13 +8,15 @@ import { queueDragId } from '../dnd/dragIds';
 import { queueSeparationDisplay } from '../queue/queueSeparationDisplay';
 import { trackLabel, useSession } from '../session/SessionProvider';
 import { CircularProgress } from './CircularProgress';
+import { CoverArt } from './CoverArt';
 
 interface QueueListProps {
   items: QueueItemDto[];
   currentQueueItemId: number | null;
+  onShowCover?: (track: QueueItemDto['track']) => void;
 }
 
-export function QueueList({ items, currentQueueItemId }: QueueListProps) {
+export function QueueList({ items, currentQueueItemId, onShowCover }: QueueListProps) {
   return (
     <SortableContext
       items={items.map((item) => queueDragId(item.id))}
@@ -26,6 +28,7 @@ export function QueueList({ items, currentQueueItemId }: QueueListProps) {
             key={item.id}
             item={item}
             current={item.id === currentQueueItemId}
+            onShowCover={onShowCover}
           />
         ))}
       </ol>
@@ -33,7 +36,15 @@ export function QueueList({ items, currentQueueItemId }: QueueListProps) {
   );
 }
 
-function SortableQueueItem({ item, current }: { item: QueueItemDto; current: boolean }) {
+function SortableQueueItem({
+  item,
+  current,
+  onShowCover,
+}: {
+  item: QueueItemDto;
+  current: boolean;
+  onShowCover?: (track: QueueItemDto['track']) => void;
+}) {
   const { state } = useSession();
   const separation = queueSeparationDisplay(item, state.jobs.separation);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -60,6 +71,11 @@ function SortableQueueItem({ item, current }: { item: QueueItemDto; current: boo
       >
         <FiMenu aria-hidden />
       </button>
+      <CoverArt
+        track={item.track}
+        size={32}
+        onClick={onShowCover ? () => onShowCover(item.track) : undefined}
+      />
       <button type="button" className="queue-title" onClick={() => void api.playItem(item.id)}>
         {trackLabel(item.track)}
       </button>

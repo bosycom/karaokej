@@ -47,6 +47,7 @@ interface WorkspaceDndProps {
   onShuffleQueue: () => void;
   onPlaylistChanged: (detail: PlaylistDetailDto) => void;
   onPlaylistsRefresh: () => void;
+  onShowCover?: (track: TrackDto) => void;
 }
 
 type ActiveDrag =
@@ -72,6 +73,7 @@ export function WorkspaceDnd({
   onShuffleQueue,
   onPlaylistChanged,
   onPlaylistsRefresh,
+  onShowCover,
 }: WorkspaceDndProps) {
   const [items, setItems] = useState(queue);
   const [playlistItems, setPlaylistItems] = useState(playlistDetail?.items ?? []);
@@ -257,6 +259,7 @@ export function WorkspaceDnd({
           onDelete={onDeletePlaylist}
           onRemoveItem={onRemovePlaylistItem}
           onPlay={onPlayPlaylist}
+          onShowCover={onShowCover}
         />
         <QueuePane
           items={items}
@@ -264,6 +267,7 @@ export function WorkspaceDnd({
           dropActive={dropActive}
           onClearQueue={onClearQueue}
           onShuffleQueue={onShuffleQueue}
+          onShowCover={onShowCover}
         />
       </div>
       <DragOverlay>
@@ -317,12 +321,14 @@ function QueuePane({
   dropActive,
   onClearQueue,
   onShuffleQueue,
+  onShowCover,
 }: {
   items: QueueItemDto[];
   currentQueueItemId: number | null;
   dropActive: boolean;
   onClearQueue: () => void;
   onShuffleQueue: () => void;
+  onShowCover?: (track: TrackDto) => void;
 }) {
   const { setNodeRef } = useDroppable({ id: QUEUE_DROPPABLE });
   const shuffleEnabled = canShuffleQueue(items, currentQueueItemId);
@@ -365,7 +371,11 @@ function QueuePane({
           {dropActive ? 'Drop to add to the queue' : 'Queue is empty. Add a song from the library.'}
         </p>
       ) : (
-        <QueueList items={items} currentQueueItemId={currentQueueItemId} />
+        <QueueList
+          items={items}
+          currentQueueItemId={currentQueueItemId}
+          onShowCover={onShowCover}
+        />
       )}
     </aside>
   );

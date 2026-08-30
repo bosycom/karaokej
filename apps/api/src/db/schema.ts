@@ -20,6 +20,8 @@ CREATE TABLE IF NOT EXISTS tracks (
   year INTEGER,
   genres TEXT,
   metadata_status TEXT NOT NULL DEFAULT 'ready',
+  cover_group TEXT,
+  musicbrainz_artist_id TEXT,
   available INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
@@ -29,6 +31,7 @@ CREATE INDEX IF NOT EXISTS idx_tracks_artist ON tracks(artist);
 CREATE INDEX IF NOT EXISTS idx_tracks_album ON tracks(album);
 CREATE INDEX IF NOT EXISTS idx_tracks_fingerprint ON tracks(fingerprint);
 CREATE INDEX IF NOT EXISTS idx_tracks_lyric_status ON tracks(lyric_status);
+CREATE INDEX IF NOT EXISTS idx_tracks_cover_group ON tracks(cover_group);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS tracks_fts USING fts5(
   title,
@@ -149,4 +152,47 @@ CREATE TABLE IF NOT EXISTS karaoke_stems (
 );
 
 CREATE INDEX IF NOT EXISTS idx_karaoke_stems_status ON karaoke_stems(status);
+
+CREATE TABLE IF NOT EXISTS covers (
+  hash TEXT PRIMARY KEY,
+  format TEXT NOT NULL,
+  src_width INTEGER,
+  src_height INTEGER,
+  bytes_sm INTEGER,
+  bytes_lg INTEGER,
+  created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS cover_groups (
+  group_key TEXT PRIMARY KEY,
+  status TEXT NOT NULL DEFAULT 'pending',
+  cover_hash TEXT,
+  source_kind TEXT,
+  source_path TEXT,
+  checked_at INTEGER,
+  error TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_cover_groups_status ON cover_groups(status);
+CREATE INDEX IF NOT EXISTS idx_cover_groups_hash ON cover_groups(cover_hash);
+
+CREATE TABLE IF NOT EXISTS artist_bios (
+  lookup_key TEXT PRIMARY KEY,
+  display_name TEXT,
+  audiodb_id TEXT,
+  musicbrainz_id TEXT,
+  status TEXT NOT NULL,
+  biography TEXT,
+  genre TEXT,
+  style TEXT,
+  mood TEXT,
+  country TEXT,
+  formed_year TEXT,
+  albums_json TEXT,
+  top_tracks_json TEXT,
+  fetched_at INTEGER NOT NULL,
+  extras_fetched_at INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_artist_bios_mbid ON artist_bios(musicbrainz_id);
 `;

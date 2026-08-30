@@ -4,6 +4,7 @@ import { TrackDto } from '@karaokej/shared';
 import { api } from '../api';
 import { useSession } from '../session/SessionProvider';
 import { KaraokeBackground } from '../backgrounds/KaraokeBackground';
+import { CoverArt } from '../components/CoverArt';
 import { LyricStage } from '../components/LyricStage';
 import { KaraokePanel } from '../components/KaraokePanel';
 import { PlayerBar } from '../components/PlayerBar';
@@ -134,6 +135,9 @@ export function KaraokePage() {
           Back to library
         </Link>
         <div className="now-playing">
+          {track && (
+            <CoverArt track={track} size={72} className="karaoke-cover" />
+          )}
           <p className="eyebrow">{track?.artist ?? 'Karaokej'}</p>
           <h1>{track?.title ?? 'Nothing playing'}</h1>
         </div>

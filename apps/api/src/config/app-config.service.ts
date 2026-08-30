@@ -66,6 +66,17 @@ export class AppConfigService {
     );
   }
 
+  get audiodbBaseUrl(): string {
+    return (
+      this.config.get<string>('AUDIODB_BASE_URL')?.replace(/\/$/, '') ??
+      'https://www.theaudiodb.com/api/v1/json'
+    );
+  }
+
+  get audiodbApiKey(): string {
+    return this.config.get<string>('AUDIODB_API_KEY')?.trim() || '123';
+  }
+
   get ytsaverPath(): string {
     const raw =
       this.config.get<string>('YTSAVER_PATH') ??
@@ -81,10 +92,14 @@ export class AppConfigService {
   }
 
   get ffmpegPath(): string {
-    const raw =
-      this.config.get<string>('FFMPEG_PATH') ??
-      '/mnt/c/Program Files/YT Saver/ffmpeg.exe';
-    return isAbsolute(raw) ? raw : resolve(this.repoRoot, raw);
+    const raw = this.config.get<string>('FFMPEG_PATH')?.trim();
+    if (raw) {
+      return isAbsolute(raw) ? raw : resolve(this.repoRoot, raw);
+    }
+    if (existsSync('/usr/bin/ffmpeg')) {
+      return '/usr/bin/ffmpeg';
+    }
+    return '/mnt/c/Program Files/YT Saver/ffmpeg.exe';
   }
 
   get ffprobePath(): string {
@@ -135,6 +150,26 @@ export class AppConfigService {
     const resolved = isAbsolute(raw) ? raw : resolve(this.repoRoot, raw);
     mkdirSync(resolved, { recursive: true });
     return resolved;
+  }
+
+  get coverCachePath(): string {
+    const raw = this.config.get<string>('COVER_CACHE_PATH') ?? './data/covers';
+    const resolved = isAbsolute(raw) ? raw : resolve(this.repoRoot, raw);
+    mkdirSync(resolved, { recursive: true });
+    return resolved;
+  }
+
+  get coverConcurrency(): number {
+    return clampInt(this.config.get<string>('COVER_CONCURRENCY'), 4, 1, 8);
+  }
+
+  get coverTimeoutMs(): number {
+    return clampInt(
+      this.config.get<string>('COVER_TIMEOUT_MS'),
+      20_000,
+      2_000,
+      120_000,
+    );
   }
 
   isDemucsAvailable(): boolean {

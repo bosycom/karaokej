@@ -4,6 +4,8 @@ import { LuBlend } from 'react-icons/lu';
 import { TrackDto } from '@karaokej/shared';
 import { api } from '../api';
 import { formatDuration } from '../format';
+import { CoverArt } from './CoverArt';
+import { CoverArtModal } from './CoverArtModal';
 import { LyricStatusBadge } from './LyricStatusBadge';
 import {
   seekBarDisplayedMs,
@@ -15,11 +17,18 @@ import { useSession, trackLabel } from '../session/SessionProvider';
 import { LyricSearchModal } from './LyricSearchModal';
 import { StarRating } from './StarRating';
 
-export function PlayerBar({ compact = false }: { compact?: boolean }) {
+export function PlayerBar({
+  compact = false,
+  onShowCover,
+}: {
+  compact?: boolean;
+  onShowCover?: (track: TrackDto) => void;
+}) {
   const { state, positionMs, liveAudioDurationMs, isPlayer } = useSession();
   const [scrub, setScrub] = useState<number | null>(null);
   const [fetchingLyrics, setFetchingLyrics] = useState(false);
   const [lyricSearchTrack, setLyricSearchTrack] = useState<TrackDto | null>(null);
+  const [localCoverTrack, setLocalCoverTrack] = useState<TrackDto | null>(null);
   const pointerDownRef = useRef(false);
   const track = state.playback.currentTrack;
 
@@ -51,6 +60,7 @@ export function PlayerBar({ compact = false }: { compact?: boolean }) {
     ? `Crossfade on, ${state.settings.crossfadeSeconds} seconds`
     : 'Crossfade off';
   const canFetch = track != null && track.lyricStatus !== 'present';
+  const showCover = onShowCover ?? setLocalCoverTrack;
 
   const commitSeek = (value: number) => {
     setScrub(null);
@@ -60,6 +70,13 @@ export function PlayerBar({ compact = false }: { compact?: boolean }) {
   return (
     <footer className={`player-bar ${compact ? 'compact' : ''}`}>
       <div className="player-track">
+        {track && (
+          <CoverArt
+            track={track}
+            size={compact ? 36 : 48}
+            onClick={() => showCover(track)}
+          />
+        )}
         <strong>{trackLabel(track)}</strong>
         {!compact && (
           <span>
@@ -194,6 +211,9 @@ export function PlayerBar({ compact = false }: { compact?: boolean }) {
         track={lyricSearchTrack}
         onClose={() => setLyricSearchTrack(null)}
       />
+      {!onShowCover && (
+        <CoverArtModal track={localCoverTrack} onClose={() => setLocalCoverTrack(null)} />
+      )}
     </footer>
   );
 }

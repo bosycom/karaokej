@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   SEARCH_HISTORY_LIMIT,
   addSearchHistoryTerm,
+  clearSearchHistory,
   readSearchHistory,
 } from './searchHistory';
 
@@ -72,5 +73,13 @@ describe('searchHistory', () => {
   it('falls back to an empty list for invalid stored values', () => {
     localStorage.setItem('karaokej.searchHistory', '{not-json');
     expect(readSearchHistory()).toEqual([]);
+  });
+
+  it('clears stored history', () => {
+    addSearchHistoryTerm('abba');
+    addSearchHistoryTerm('queen');
+    clearSearchHistory();
+    expect(readSearchHistory()).toEqual([]);
+    expect(localStorage.getItem('karaokej.searchHistory')).toBeNull();
   });
 });

@@ -9,6 +9,8 @@ import { TrackDto } from '@karaokej/shared';
 import { AppConfigService } from '../config/app-config.service';
 import { DbService } from '../db/db.service';
 import { trackToDto } from '../db/types';
+import { loadCoverInfoForTrack } from '../covers/cover-lookup';
+import { pruneOrphanedCoverGroups } from '../covers/cover-storage';
 import { lyricPathFor } from '../library/fs-utils';
 import { readTrackMetadata } from '../library/scan-metadata';
 import { resolveReliableDurationMs } from '../library/probe-duration';
@@ -117,6 +119,7 @@ export class TrackMetadataService {
     };
 
     const now = Date.now();
+    const previousCoverGroup = track.cover_group ?? null;
     upsertTagsTrack(
       this.db.raw,
       {
@@ -130,11 +133,17 @@ export class TrackMetadataService {
       now,
     );
 
+    if (previousCoverGroup) {
+      pruneOrphanedCoverGroups(this.db.raw, this.config.coverCachePath, [
+        previousCoverGroup,
+      ]);
+    }
+
     this.session.broadcast();
     const updated = this.library.getTrack(trackId);
     if (!updated) {
       throw new NotFoundException('Track not found');
     }
-    return trackToDto(updated);
+    return trackToDto(updated, null, loadCoverInfoForTrack(this.db.raw, updated));
   }
 }

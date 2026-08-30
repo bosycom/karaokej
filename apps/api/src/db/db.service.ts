@@ -75,6 +75,13 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
       );
       this.db.exec(`UPDATE tracks SET metadata_status = 'ready' WHERE metadata_status IS NULL`);
     }
+    if (!names.has('cover_group')) {
+      this.db.exec(`ALTER TABLE tracks ADD COLUMN cover_group TEXT`);
+    }
+    if (!names.has('musicbrainz_artist_id')) {
+      this.db.exec(`ALTER TABLE tracks ADD COLUMN musicbrainz_artist_id TEXT`);
+    }
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_tracks_cover_group ON tracks(cover_group)`);
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_tracks_rating ON tracks(rating)`);
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_tracks_available ON tracks(available)`);
     this.db.exec(
@@ -92,6 +99,28 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
         AND (duration_ms <= 0 OR duration_ms > 86400000)
     `);
     this.migrateReliableDuration();
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS artist_bios (
+        lookup_key TEXT PRIMARY KEY,
+        display_name TEXT,
+        audiodb_id TEXT,
+        musicbrainz_id TEXT,
+        status TEXT NOT NULL,
+        biography TEXT,
+        genre TEXT,
+        style TEXT,
+        mood TEXT,
+        country TEXT,
+        formed_year TEXT,
+        albums_json TEXT,
+        top_tracks_json TEXT,
+        fetched_at INTEGER NOT NULL,
+        extras_fetched_at INTEGER
+      )
+    `);
+    this.db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_artist_bios_mbid ON artist_bios(musicbrainz_id)`,
+    );
   }
 
   private migrateReliableDuration(): void {
@@ -147,6 +176,12 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
          VALUES (?, 0, 0, 0, NULL, ?)`,
       )
       .run('separation', now);
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO jobs (kind, running, current, total, message, updated_at)
+         VALUES (?, 0, 0, 0, NULL, ?)`,
+      )
+      .run('covers', now);
     this.db
       .prepare(
         `INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, ?)`,

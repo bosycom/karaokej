@@ -4,6 +4,7 @@ interface SearchHistoryModalProps {
   open: boolean;
   terms: string[];
   onSelect: (term: string) => void;
+  onClear: () => void;
   onClose: () => void;
   closeOnBackdropClick?: boolean;
 }
@@ -12,6 +13,7 @@ export function SearchHistoryModal({
   open,
   terms,
   onSelect,
+  onClear,
   onClose,
   closeOnBackdropClick,
 }: SearchHistoryModalProps) {
@@ -46,7 +48,10 @@ export function SearchHistoryModal({
           </ul>
         </div>
       )}
-      <div className="modal-actions">
+      <div className="modal-actions modal-actions-multi">
+        <button type="button" disabled={terms.length === 0} onClick={onClear}>
+          Clear history
+        </button>
         <button type="button" className="modal-primary" onClick={onClose}>
           Close
         </button>

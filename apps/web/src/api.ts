@@ -1,5 +1,7 @@
 import {
   AppSettingsDto,
+  ArtistBioChooseDto,
+  ArtistBioDto,
   KaraokeMode,
   KaraokeSettingsDto,
   KaraokeStateDto,
@@ -71,6 +73,10 @@ export const api = {
     request<LibraryStatusDto>('/api/library/fetch-lyrics/cancel', {
       method: 'POST',
     }),
+  createThumbnails: () =>
+    request<LibraryStatusDto>('/api/library/covers', { method: 'POST' }),
+  cancelThumbnails: () =>
+    request<LibraryStatusDto>('/api/library/covers/cancel', { method: 'POST' }),
   fetchTrackLyrics: (trackId: number) =>
     request<TrackDto>(`/api/tracks/${trackId}/lyrics/fetch`, { method: 'POST' }),
   searchTrackLyrics: (trackId: number, q: string) => {
@@ -88,6 +94,19 @@ export const api = {
     request<TrackDto>(`/api/tracks/${trackId}/lyrics/unavailable`, {
       method: 'POST',
     }),
+  trackArtistBio: (trackId: number) =>
+    request<ArtistBioDto>(`/api/tracks/${trackId}/artist-bio`),
+  chooseTrackArtistBio: (trackId: number, body: ArtistBioChooseDto) =>
+    request<ArtistBioDto>(`/api/tracks/${trackId}/artist-bio/choose`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  refreshTrackArtistBio: (trackId: number) =>
+    request<ArtistBioDto>(`/api/tracks/${trackId}/artist-bio/refresh`, {
+      method: 'POST',
+    }),
+  trackArtistBioExtras: (trackId: number) =>
+    request<ArtistBioDto>(`/api/tracks/${trackId}/artist-bio/extras`),
   tracks: (
     q: string,
     page: number,
@@ -314,6 +333,13 @@ export const emptySession: SessionStateDto = {
     },
     separation: {
       kind: 'separation',
+      running: false,
+      current: 0,
+      total: 0,
+      message: null,
+    },
+    covers: {
+      kind: 'covers',
       running: false,
       current: 0,
       total: 0,

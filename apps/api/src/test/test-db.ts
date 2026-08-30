@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import { SCHEMA_SQL } from '../db/schema';
 import { type Statement, wrapStatement } from '../db/sqlite-statement';
+import { coverGroupKey } from '../covers/cover-group-key';
 
 export class TestSqliteDb {
   constructor(private readonly db: DatabaseSync) {}
@@ -71,10 +72,38 @@ export class TestDbService {
       );
       this.raw.exec(`UPDATE tracks SET metadata_status = 'ready' WHERE metadata_status IS NULL`);
     }
+    if (!names.has('cover_group')) {
+      this.raw.exec(`ALTER TABLE tracks ADD COLUMN cover_group TEXT`);
+    }
+    if (!names.has('musicbrainz_artist_id')) {
+      this.raw.exec(`ALTER TABLE tracks ADD COLUMN musicbrainz_artist_id TEXT`);
+    }
     this.raw.exec(`CREATE INDEX IF NOT EXISTS idx_tracks_rating ON tracks(rating)`);
     this.raw.exec(`CREATE INDEX IF NOT EXISTS idx_tracks_available ON tracks(available)`);
     this.raw.exec(
       `CREATE INDEX IF NOT EXISTS idx_tracks_metadata_status ON tracks(metadata_status)`,
+    );
+    this.raw.exec(`
+      CREATE TABLE IF NOT EXISTS artist_bios (
+        lookup_key TEXT PRIMARY KEY,
+        display_name TEXT,
+        audiodb_id TEXT,
+        musicbrainz_id TEXT,
+        status TEXT NOT NULL,
+        biography TEXT,
+        genre TEXT,
+        style TEXT,
+        mood TEXT,
+        country TEXT,
+        formed_year TEXT,
+        albums_json TEXT,
+        top_tracks_json TEXT,
+        fetched_at INTEGER NOT NULL,
+        extras_fetched_at INTEGER
+      )
+    `);
+    this.raw.exec(
+      `CREATE INDEX IF NOT EXISTS idx_artist_bios_mbid ON artist_bios(musicbrainz_id)`,
     );
   }
 
@@ -110,6 +139,12 @@ export class TestDbService {
          VALUES (?, 0, 0, 0, NULL, ?)`,
       )
       .run('separation', now);
+    this.raw
+      .prepare(
+        `INSERT OR IGNORE INTO jobs (kind, running, current, total, message, updated_at)
+         VALUES (?, 0, 0, 0, NULL, ?)`,
+      )
+      .run('covers', now);
     this.raw
       .prepare(`INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, ?)`)
       .run('remove_played_from_queue', '0');
@@ -155,6 +190,7 @@ export function insertTrack(
     lyricStatus?: string;
     rating?: number | null;
     metadataStatus?: 'pending' | 'ready';
+    coverGroup?: string | null;
   },
 ): number {
   const now = Date.now();
@@ -162,8 +198,8 @@ export function insertTrack(
     .prepare(
       `INSERT INTO tracks (
          relative_path, format, size_bytes, mtime_ms, title, artist, album,
-         duration_ms, lyric_status, rating, metadata_status, available, created_at, updated_at
-       ) VALUES (?, ?, 1000, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         duration_ms, lyric_status, rating, metadata_status, cover_group, available, created_at, updated_at
+       ) VALUES (?, ?, 1000, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       patch.relativePath,
@@ -176,6 +212,9 @@ export function insertTrack(
       patch.lyricStatus ?? 'missing',
       patch.rating ?? null,
       patch.metadataStatus ?? 'ready',
+      patch.coverGroup === undefined
+        ? coverGroupKey(patch.relativePath, patch.album ?? null)
+        : patch.coverGroup,
       patch.available ?? 1,
       now,
       now,

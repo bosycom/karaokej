@@ -14,6 +14,11 @@ export type LyricSource = 'local' | 'lrclib';
 
 export type MetadataStatus = 'pending' | 'ready';
 
+/** pending = never looked at; none = looked, no artwork exists. */
+export type CoverStatus = 'pending' | 'ready' | 'none' | 'error';
+
+export type CoverSize = 'sm' | 'lg';
+
 export interface TrackDto {
   id: number;
   relativePath: string;
@@ -39,6 +44,13 @@ export interface TrackDto {
   audioVersion: number;
   /** Stem separation state; null = never requested / no row in karaoke_stems. */
   karaokeStemStatus: AiProcessingStatus | null;
+  /** Album-level artwork key; every track of one album shares it. */
+  coverGroup: string | null;
+  /** Content hash of the resolved artwork, used to pin immutable caching. */
+  coverVersion: string | null;
+  coverStatus: CoverStatus;
+  /** MusicBrainz artist ID from file tags, when present. */
+  musicbrainzArtistId: string | null;
 }
 
 export interface TrackPageDto {
@@ -120,8 +132,10 @@ export interface PlaybackStateDto {
   seekSeq: number;
 }
 
+export type JobKind = 'scan' | 'lyrics' | 'download' | 'separation' | 'covers';
+
 export interface JobStatusDto {
-  kind: 'scan' | 'lyrics' | 'download' | 'separation';
+  kind: JobKind;
   running: boolean;
   current: number;
   total: number;
@@ -197,6 +211,44 @@ export interface RandomArtistDto {
   artist: string;
 }
 
+export type ArtistBioStatus = 'ready' | 'not_found' | 'ambiguous' | 'no_artist';
+
+export interface ArtistBioChoiceDto {
+  audiodbId: string | null;
+  name: string;
+  country: string | null;
+  genre: string | null;
+  formedYear: string | null;
+}
+
+export interface ArtistBioAlbumDto {
+  name: string;
+  year: string | null;
+}
+
+export interface ArtistBioTrackDto {
+  name: string;
+}
+
+export interface ArtistBioDto {
+  status: ArtistBioStatus;
+  displayName: string | null;
+  biography: string | null;
+  genre: string | null;
+  style: string | null;
+  mood: string | null;
+  country: string | null;
+  formedYear: string | null;
+  albums: ArtistBioAlbumDto[];
+  topTracks: ArtistBioTrackDto[];
+  choices: ArtistBioChoiceDto[];
+}
+
+export interface ArtistBioChooseDto {
+  name?: string;
+  audiodbId?: string;
+}
+
 export interface AppSettingsDto {
   removePlayedFromQueue: boolean;
   /** 0 = off, 1–10 = crossfade duration in seconds */
@@ -213,6 +265,7 @@ export interface SessionStateDto {
     lyricsFetch: JobStatusDto;
     download: JobStatusDto;
     separation: JobStatusDto;
+    covers: JobStatusDto;
   };
   settings: AppSettingsDto;
   karaoke: KaraokeStateDto;

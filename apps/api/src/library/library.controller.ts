@@ -1,12 +1,14 @@
 import { Controller, Get, Post, Query } from '@nestjs/common';
 import { LibraryService } from './library.service';
 import { LyricsService } from '../lyrics/lyrics.service';
+import { CoverService } from '../covers/cover.service';
 
 @Controller('library')
 export class LibraryController {
   constructor(
     private readonly library: LibraryService,
     private readonly lyrics: LyricsService,
+    private readonly covers: CoverService,
   ) {}
 
   @Get('status')
@@ -45,6 +47,18 @@ export class LibraryController {
   @Post('fetch-lyrics/cancel')
   cancelFetchLyrics() {
     this.lyrics.cancelFetch();
+    return this.library.status();
+  }
+
+  @Post('covers')
+  createThumbnails() {
+    this.covers.startBatch();
+    return this.library.status();
+  }
+
+  @Post('covers/cancel')
+  cancelThumbnails() {
+    this.covers.cancelBatch();
     return this.library.status();
   }
 }

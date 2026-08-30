@@ -1,6 +1,7 @@
 import { basename, extname } from 'node:path';
 import { fallbackMetadata, makeFingerprint } from './fs-utils';
 import { sanitizeDurationMs } from './duration-utils';
+import { coverGroupKey } from '../covers/cover-group-key';
 import type { ParsedTrackMetadata, ScanChunkItem } from './scan-ipc';
 
 interface DbLike {
@@ -65,8 +66,9 @@ export function upsertPathTrack(
     `INSERT INTO tracks (
        relative_path, format, size_bytes, mtime_ms, title, artist, album, album_artist,
        track_no, duration_ms, lyric_status, lyric_source, lyric_checked_at, lrclib_id,
-       fingerprint, rating, year, genres, metadata_status, available, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?, ?, NULL, NULL, NULL, 'pending', 1, ?, ?)
+       fingerprint, rating, year, genres, metadata_status, cover_group, musicbrainz_artist_id,
+       available, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?, ?, NULL, NULL, NULL, 'pending', ?, NULL, 1, ?, ?)
      ON CONFLICT(relative_path) DO UPDATE SET
        format = excluded.format,
        size_bytes = excluded.size_bytes,
@@ -86,6 +88,8 @@ export function upsertPathTrack(
        year = NULL,
        genres = NULL,
        metadata_status = 'pending',
+       cover_group = excluded.cover_group,
+       musicbrainz_artist_id = NULL,
        available = 1,
        updated_at = excluded.updated_at`,
   ).run(
@@ -101,6 +105,7 @@ export function upsertPathTrack(
     lyricCheckedAt,
     lrclibId,
     fingerprint,
+    coverGroupKey(item.relativePath, fallback.album),
     now,
     now,
   );
@@ -130,8 +135,9 @@ export function upsertTagsTrack(
     `INSERT INTO tracks (
        relative_path, format, size_bytes, mtime_ms, title, artist, album, album_artist,
        track_no, duration_ms, lyric_status, lyric_source, lyric_checked_at, lrclib_id,
-       fingerprint, rating, year, genres, metadata_status, available, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ready', 1, ?, ?)
+       fingerprint, rating, year, genres, metadata_status, cover_group, musicbrainz_artist_id,
+       available, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ready', ?, ?, 1, ?, ?)
      ON CONFLICT(relative_path) DO UPDATE SET
        format = excluded.format,
        size_bytes = excluded.size_bytes,
@@ -151,6 +157,8 @@ export function upsertTagsTrack(
        year = excluded.year,
        genres = excluded.genres,
        metadata_status = 'ready',
+       cover_group = excluded.cover_group,
+       musicbrainz_artist_id = excluded.musicbrainz_artist_id,
        available = 1,
        updated_at = excluded.updated_at`,
   ).run(
@@ -172,6 +180,8 @@ export function upsertTagsTrack(
     parsed.rating,
     parsed.year,
     parsed.genres.length > 0 ? JSON.stringify(parsed.genres) : null,
+    coverGroupKey(item.relativePath, parsed.album),
+    parsed.musicbrainzArtistId ?? null,
     now,
     now,
   );

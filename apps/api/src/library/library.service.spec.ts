@@ -7,6 +7,29 @@ import { LibraryService } from './library.service';
 import { createMockSession } from '../test/mock-session';
 import { createMockSeparation } from '../test/mock-separation';
 import { createTestDb, insertTrack, TestDbService } from '../test/test-db';
+import { coverGroupKey } from '../covers/cover-group-key';
+import { coverFilePath, writeCoverFile } from '../covers/cover-storage';
+
+const COVER_HASH = 'c'.repeat(64);
+
+function seedCover(
+  db: TestDbService,
+  cacheRoot: string,
+  groupKey: string,
+  hash: string,
+): void {
+  writeCoverFile(cacheRoot, hash, 'sm', 'webp', Buffer.from('sm'));
+  writeCoverFile(cacheRoot, hash, 'lg', 'webp', Buffer.from('lg'));
+  db.raw
+    .prepare(`INSERT INTO covers (hash, format, created_at) VALUES (?, 'webp', ?)`)
+    .run(hash, Date.now());
+  db.raw
+    .prepare(
+      `INSERT INTO cover_groups (group_key, status, cover_hash, source_kind, checked_at)
+       VALUES (?, 'ready', ?, 'embedded', ?)`,
+    )
+    .run(groupKey, hash, Date.now());
+}
 
 describe('LibraryService.search', () => {
   let db: TestDbService;
@@ -325,18 +348,26 @@ describe('LibraryService.deleteTrackFile', () => {
   let cleanup: () => void;
   let library: LibraryService;
   let libraryRoot: string;
+  let coverCachePath: string;
   let libraryCleanup: () => void;
 
   beforeEach(() => {
     ({ db, cleanup } = createTestDb());
     libraryRoot = mkdtempSync(join(tmpdir(), 'karaokej-lib-'));
-    libraryCleanup = () => rmSync(libraryRoot, { recursive: true, force: true });
+    coverCachePath = mkdtempSync(join(tmpdir(), 'karaokej-lib-covers-'));
+    libraryCleanup = () => {
+      rmSync(libraryRoot, { recursive: true, force: true });
+      rmSync(coverCachePath, { recursive: true, force: true });
+    };
 
     library = new LibraryService(
       db as never,
       {
         resolveUnderLibrary: (relativePath: string) =>
           join(libraryRoot, relativePath),
+        get coverCachePath() {
+          return coverCachePath;
+        },
       } as never,
       createMockSession(db),
       createMockSeparation(),
@@ -390,5 +421,58 @@ describe('LibraryService.deleteTrackFile', () => {
         .prepare(`SELECT COUNT(*) AS c FROM playlist_items WHERE track_id = ?`)
         .get(trackId) as { c: number },
     ).toEqual({ c: 0 });
+  });
+
+  it('removes cover thumbnails when the last track of an album is deleted', () => {
+    writeFileSync(join(libraryRoot, 'only.mp3'), 'audio');
+    const trackId = insertTrack(db, {
+      relativePath: 'only.mp3',
+      title: 'Only',
+      album: 'Solo Album',
+    });
+    const groupKey = coverGroupKey('only.mp3', 'Solo Album');
+    seedCover(db, coverCachePath, groupKey, COVER_HASH);
+
+    library.deleteTrackFile(trackId);
+
+    expect(
+      existsSync(coverFilePath(coverCachePath, COVER_HASH, 'sm', 'webp')),
+    ).toBe(false);
+    expect(
+      db.raw
+        .prepare(`SELECT COUNT(*) AS c FROM cover_groups WHERE group_key = ?`)
+        .get(groupKey) as { c: number },
+    ).toEqual({ c: 0 });
+    expect(
+      db.raw.prepare(`SELECT COUNT(*) AS c FROM covers`).get() as { c: number },
+    ).toEqual({ c: 0 });
+  });
+
+  it('keeps cover thumbnails while other tracks of the album remain', () => {
+    writeFileSync(join(libraryRoot, 'one.mp3'), 'audio');
+    writeFileSync(join(libraryRoot, 'two.mp3'), 'audio');
+    const first = insertTrack(db, {
+      relativePath: 'one.mp3',
+      title: 'One',
+      album: 'Shared Album',
+    });
+    insertTrack(db, {
+      relativePath: 'two.mp3',
+      title: 'Two',
+      album: 'Shared Album',
+    });
+    const groupKey = coverGroupKey('one.mp3', 'Shared Album');
+    seedCover(db, coverCachePath, groupKey, COVER_HASH);
+
+    library.deleteTrackFile(first);
+
+    expect(
+      existsSync(coverFilePath(coverCachePath, COVER_HASH, 'sm', 'webp')),
+    ).toBe(true);
+    expect(
+      db.raw
+        .prepare(`SELECT COUNT(*) AS c FROM cover_groups WHERE group_key = ?`)
+        .get(groupKey) as { c: number },
+    ).toEqual({ c: 1 });
   });
 });

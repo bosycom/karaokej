@@ -28,6 +28,10 @@ import { YtdlpService } from './external/ytdlp.service';
 import { KaraokeController } from './karaoke/karaoke.controller';
 import { KaraokeService } from './karaoke/karaoke.service';
 import { SeparationService } from './karaoke/separation.service';
+import { CoversController } from './covers/covers.controller';
+import { CoverService } from './covers/cover.service';
+import { AudioDbClient } from './artist-bio/audiodb.client';
+import { ArtistBioService } from './artist-bio/artist-bio.service';
 
 @Module({
   imports: [
@@ -50,6 +54,7 @@ import { SeparationService } from './karaoke/separation.service';
     PlaylistsController,
     ExternalController,
     KaraokeController,
+    CoversController,
   ],
   providers: [
     AppConfigService,
@@ -70,6 +75,9 @@ import { SeparationService } from './karaoke/separation.service';
     YtdlpService,
     KaraokeService,
     SeparationService,
+    CoverService,
+    AudioDbClient,
+    ArtistBioService,
   ],
 })
 export class AppModule {}

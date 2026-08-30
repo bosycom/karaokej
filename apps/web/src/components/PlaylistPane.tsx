@@ -1,7 +1,7 @@
 import { FormEvent, ReactNode, useMemo, useState } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { FiEdit2, FiPlay, FiPlus, FiTrash2 } from 'react-icons/fi';
-import { PlaylistDetailDto, PlaylistSummaryDto } from '@karaokej/shared';
+import { PlaylistDetailDto, PlaylistSummaryDto, TrackDto } from '@karaokej/shared';
 import { playlistDropId } from '../dnd/dragIds';
 import { PlaylistItemList } from './PlaylistItemList';
 
@@ -16,6 +16,7 @@ interface PlaylistPaneProps {
   onDelete: (id: number) => void;
   onRemoveItem: (itemId: number) => void;
   onPlay: (id: number) => void;
+  onShowCover?: (track: TrackDto) => void;
 }
 
 export function PlaylistPane({
@@ -29,6 +30,7 @@ export function PlaylistPane({
   onDelete,
   onRemoveItem,
   onPlay,
+  onShowCover,
 }: PlaylistPaneProps) {
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
@@ -208,6 +210,7 @@ export function PlaylistPane({
             <PlaylistItemList
               items={detail.items}
               onRemove={onRemoveItem}
+              onShowCover={onShowCover}
             />
           )}
         </section>

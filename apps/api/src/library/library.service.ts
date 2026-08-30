@@ -10,6 +10,7 @@ import { existsSync, statSync, unlinkSync } from 'node:fs';
 import { access, constants } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import {
+  JobKind,
   JobStatusDto,
   LibraryStatusDto,
   RandomArtistDto,
@@ -22,6 +23,13 @@ import { AppConfigService } from '../config/app-config.service';
 import { DbService } from '../db/db.service';
 import { JobRow, TrackRow, trackToDto } from '../db/types';
 import { loadStemRowsForTracks, resolveStemStatusForTrack } from '../karaoke/stem-status';
+import {
+  coverInfoForTrack,
+  loadCoverInfoForTrack,
+  loadCoverInfoForTracks,
+} from '../covers/cover-lookup';
+import { coverGroupKey } from '../covers/cover-group-key';
+import { pruneOrphanedCoverGroups } from '../covers/cover-storage';
 import { SeparationService } from '../karaoke/separation.service';
 import { SessionService } from '../session/session.service';
 import {
@@ -70,7 +78,7 @@ const LIBRARY_SCAN_ROOT_KEY = 'library_scan_root';
 const TRACK_SELECT_COLUMNS = `
   id, relative_path, format, size_bytes, mtime_ms, title, artist, album, album_artist,
   track_no, duration_ms, lyric_status, lyric_source, lyric_checked_at, lrclib_id,
-  fingerprint, rating, year, genres, metadata_status, available, created_at, updated_at
+  fingerprint, rating, year, genres, metadata_status, cover_group, available, created_at, updated_at
 `;
 
 const DEDUPE_PARTITION = `
@@ -131,7 +139,7 @@ export class LibraryService implements OnModuleInit {
     };
   }
 
-  jobStatus(kind: 'scan' | 'lyrics' | 'download' | 'separation'): JobStatusDto {
+  jobStatus(kind: JobKind): JobStatusDto {
     const row = this.db.raw
       .prepare(`SELECT * FROM jobs WHERE kind = ?`)
       .get(kind) as JobRow | undefined;
@@ -145,7 +153,7 @@ export class LibraryService implements OnModuleInit {
   }
 
   setJob(
-    kind: 'scan' | 'lyrics' | 'download' | 'separation',
+    kind: JobKind,
     patch: {
       running?: boolean;
       current?: number;
@@ -188,8 +196,13 @@ export class LibraryService implements OnModuleInit {
       this.db.raw,
       rows.map((row) => row.id),
     );
+    const coverByGroup = loadCoverInfoForTracks(this.db.raw, rows);
     return rows.map((row) =>
-      trackToDto(row, resolveStemStatusForTrack(row, stemByTrackId.get(row.id))),
+      trackToDto(
+        row,
+        resolveStemStatusForTrack(row, stemByTrackId.get(row.id)),
+        coverInfoForTrack(coverByGroup, row),
+      ),
     );
   }
 
@@ -296,11 +309,16 @@ export class LibraryService implements OnModuleInit {
       deletedQueueItemIds.has(playback.current_queue_item_id);
 
     const now = Date.now();
+    const coverGroup = track.cover_group ?? null;
+    const coverCachePath = this.config.coverCachePath;
     const tx = this.db.raw.transaction((id: number) => {
       this.db.raw
         .prepare(`DELETE FROM playlist_items WHERE track_id = ?`)
         .run(id);
       this.db.raw.prepare(`DELETE FROM tracks WHERE id = ?`).run(id);
+      if (coverGroup) {
+        pruneOrphanedCoverGroups(this.db.raw, coverCachePath, [coverGroup]);
+      }
     });
     tx(trackId);
 
@@ -396,7 +414,7 @@ export class LibraryService implements OnModuleInit {
     if (!row) {
       throw new BadRequestException('Failed to index downloaded file');
     }
-    return trackToDto(row);
+    return trackToDto(row, null, loadCoverInfoForTrack(this.db.raw, row));
   }
 
   backfillDurationIfMissing(trackId: number): void {

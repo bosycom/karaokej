@@ -14,6 +14,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { AppConfigService } from '../config/app-config.service';
 import { DbService } from '../db/db.service';
 import { TrackRow, trackToDto } from '../db/types';
+import { loadCoverInfoForTrack } from '../covers/cover-lookup';
 import { lyricPathFor, yieldEventLoop } from '../library/fs-utils';
 import { LibraryService } from '../library/library.service';
 import { SessionService } from '../session/session.service';
@@ -93,7 +94,7 @@ export class LyricsService {
     if (!updated) {
       throw new NotFoundException('Track not found');
     }
-    return trackToDto(updated);
+    return trackToDto(updated, null, loadCoverInfoForTrack(this.db.raw, updated));
   }
 
   async searchForTrack(trackId: number, q: string): Promise<LyricSearchResultDto> {
@@ -143,7 +144,7 @@ export class LyricsService {
     if (!updated) {
       throw new NotFoundException('Track not found');
     }
-    return trackToDto(updated);
+    return trackToDto(updated, null, loadCoverInfoForTrack(this.db.raw, updated));
   }
 
   async markUnavailable(trackId: number): Promise<TrackDto> {
@@ -158,7 +159,7 @@ export class LyricsService {
     if (!updated) {
       throw new NotFoundException('Track not found');
     }
-    return trackToDto(updated);
+    return trackToDto(updated, null, loadCoverInfoForTrack(this.db.raw, updated));
   }
 
   private async runFetch(): Promise<void> {

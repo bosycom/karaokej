@@ -1,6 +1,8 @@
 import {
   AiProcessingStatus,
   AudioFormat,
+  CoverStatus,
+  JobKind,
   KARAOKE_DEFAULTS,
   KaraokeSettingsDto,
   KaraokeStemDto,
@@ -32,6 +34,8 @@ export interface TrackRow {
   year: number | null;
   genres: string | null;
   metadata_status: 'pending' | 'ready';
+  cover_group: string | null;
+  musicbrainz_artist_id: string | null;
   available: number;
   created_at: number;
   updated_at: number;
@@ -52,9 +56,15 @@ function parseGenres(raw: string | null | undefined): string[] {
   }
 }
 
+export interface TrackCoverInfo {
+  status: CoverStatus;
+  hash: string | null;
+}
+
 export function trackToDto(
   row: TrackRow,
   karaokeStemStatus: AiProcessingStatus | null = null,
+  cover: TrackCoverInfo | null = null,
 ): TrackDto {
   return {
     id: row.id,
@@ -74,6 +84,10 @@ export function trackToDto(
     metadataStatus: row.metadata_status ?? 'ready',
     audioVersion: row.size_bytes,
     karaokeStemStatus,
+    coverGroup: row.cover_group ?? null,
+    coverVersion: cover?.hash ?? null,
+    coverStatus: cover?.status ?? 'pending',
+    musicbrainzArtistId: row.musicbrainz_artist_id ?? null,
   };
 }
 
@@ -95,8 +109,32 @@ export interface PlaybackRow {
   updated_at: number;
 }
 
+export type CoverGroupStatus = 'pending' | 'ready' | 'none' | 'error';
+
+export type CoverSourceKind = 'sidecar' | 'embedded';
+
+export interface CoverGroupRow {
+  group_key: string;
+  status: CoverGroupStatus;
+  cover_hash: string | null;
+  source_kind: CoverSourceKind | null;
+  source_path: string | null;
+  checked_at: number | null;
+  error: string | null;
+}
+
+export interface CoverRow {
+  hash: string;
+  format: string;
+  src_width: number | null;
+  src_height: number | null;
+  bytes_sm: number | null;
+  bytes_lg: number | null;
+  created_at: number;
+}
+
 export interface JobRow {
-  kind: 'scan' | 'lyrics' | 'download' | 'separation';
+  kind: JobKind;
   running: number;
   current: number;
   total: number;

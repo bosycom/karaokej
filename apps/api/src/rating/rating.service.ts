@@ -8,6 +8,7 @@ import { TrackDto } from '@karaokej/shared';
 import { AppConfigService } from '../config/app-config.service';
 import { DbService } from '../db/db.service';
 import { trackToDto } from '../db/types';
+import { loadCoverInfoForTrack } from '../covers/cover-lookup';
 import { LibraryService } from '../library/library.service';
 import { SessionService } from '../session/session.service';
 import { isRating } from './rating-scale';
@@ -55,6 +56,6 @@ export class RatingService {
     if (!updated) {
       throw new NotFoundException('Track not found');
     }
-    return trackToDto(updated);
+    return trackToDto(updated, null, loadCoverInfoForTrack(this.db.raw, updated));
   }
 }

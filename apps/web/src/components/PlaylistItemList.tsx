@@ -4,13 +4,15 @@ import { FiMenu, FiX } from 'react-icons/fi';
 import { PlaylistItemDto } from '@karaokej/shared';
 import { playlistItemDragId } from '../dnd/dragIds';
 import { formatDuration } from '../format';
+import { CoverArt } from './CoverArt';
 
 interface PlaylistItemListProps {
   items: PlaylistItemDto[];
   onRemove: (itemId: number) => void;
+  onShowCover?: (track: PlaylistItemDto['track']) => void;
 }
 
-export function PlaylistItemList({ items, onRemove }: PlaylistItemListProps) {
+export function PlaylistItemList({ items, onRemove, onShowCover }: PlaylistItemListProps) {
   return (
     <SortableContext
       items={items.map((item) => playlistItemDragId(item.id))}
@@ -18,7 +20,12 @@ export function PlaylistItemList({ items, onRemove }: PlaylistItemListProps) {
     >
       <ul className="queue-list playlist-item-list">
         {items.map((item) => (
-          <SortablePlaylistItem key={item.id} item={item} onRemove={onRemove} />
+          <SortablePlaylistItem
+            key={item.id}
+            item={item}
+            onRemove={onRemove}
+            onShowCover={onShowCover}
+          />
         ))}
       </ul>
     </SortableContext>
@@ -28,9 +35,11 @@ export function PlaylistItemList({ items, onRemove }: PlaylistItemListProps) {
 function SortablePlaylistItem({
   item,
   onRemove,
+  onShowCover,
 }: {
   item: PlaylistItemDto;
   onRemove: (itemId: number) => void;
+  onShowCover?: (track: PlaylistItemDto['track']) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: playlistItemDragId(item.id),
@@ -58,6 +67,11 @@ function SortablePlaylistItem({
       >
         <FiMenu aria-hidden />
       </button>
+      <CoverArt
+        track={item.track}
+        size={32}
+        onClick={onShowCover ? () => onShowCover(item.track) : undefined}
+      />
       <div className="playlist-item-main">
         <strong>{item.track.title}</strong>
         <span>

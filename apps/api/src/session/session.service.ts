@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, forwardRef } from '@nestjs/common';
 import WebSocket from 'ws';
 import {
+  JobKind,
   JobStatusDto,
   PlaybackStateDto,
   QueueItemDto,
@@ -11,6 +12,11 @@ import { DbService } from '../db/db.service';
 import { JobRow, PlaybackRow, TrackRow, trackToDto } from '../db/types';
 import { SeparationService } from '../karaoke/separation.service';
 import { loadStemRowsForTracks, resolveQueueStemStatus } from '../karaoke/stem-status';
+import {
+  coverInfoForTrack,
+  loadCoverInfoForTrack,
+  loadCoverInfoForTracks,
+} from '../covers/cover-lookup';
 import { SettingsService } from '../settings/settings.service';
 import { KaraokeService } from '../karaoke/karaoke.service';
 
@@ -74,6 +80,7 @@ export class SessionService implements OnModuleDestroy {
         lyricsFetch: this.job('lyrics'),
         download: this.job('download'),
         separation: this.job('separation'),
+        covers: this.job('covers'),
       },
       settings: this.settings.get(),
       karaoke: this.karaoke.getState(),
@@ -91,7 +98,9 @@ export class SessionService implements OnModuleDestroy {
           `SELECT t.* FROM queue_items q JOIN tracks t ON t.id = q.track_id WHERE q.id = ?`,
         )
         .get(row.current_queue_item_id) as TrackRow | undefined;
-      currentTrack = joined ? trackToDto(joined) : null;
+      currentTrack = joined
+        ? trackToDto(joined, null, loadCoverInfoForTrack(this.db.raw, joined))
+        : null;
     }
     return {
       currentQueueItemId: row.current_queue_item_id,
@@ -114,7 +123,8 @@ export class SessionService implements OnModuleDestroy {
            t.id, t.relative_path, t.format, t.size_bytes, t.mtime_ms,
            t.title, t.artist, t.album, t.album_artist, t.track_no, t.duration_ms,
            t.lyric_status, t.lyric_source, t.lyric_checked_at, t.lrclib_id,
-           t.fingerprint, t.rating, t.year, t.genres, t.created_at, t.updated_at
+           t.fingerprint, t.rating, t.year, t.genres, t.cover_group,
+           t.created_at, t.updated_at
          FROM queue_items q
          JOIN tracks t ON t.id = q.track_id
          ORDER BY q.position ASC, q.id ASC`,
@@ -124,6 +134,7 @@ export class SessionService implements OnModuleDestroy {
     >;
 
     const stemByTrackId = loadStemRowsForTracks(this.db.raw, rows.map((row) => row.id));
+    const coverByGroup = loadCoverInfoForTracks(this.db.raw, rows);
 
     return rows.map((row) => ({
       id: row.queue_id,
@@ -132,6 +143,7 @@ export class SessionService implements OnModuleDestroy {
       track: trackToDto(
         row,
         resolveQueueStemStatus(row, stemByTrackId.get(row.id))?.status ?? null,
+        coverInfoForTrack(coverByGroup, row),
       ),
       stem: resolveQueueStemStatus(row, stemByTrackId.get(row.id)),
     }));
@@ -155,7 +167,7 @@ export class SessionService implements OnModuleDestroy {
     }
   }
 
-  private job(kind: 'scan' | 'lyrics' | 'download' | 'separation'): JobStatusDto {
+  private job(kind: JobKind): JobStatusDto {
     const row = this.db.raw
       .prepare(`SELECT * FROM jobs WHERE kind = ?`)
       .get(kind) as JobRow | undefined;

@@ -32,3 +32,11 @@ export function addSearchHistoryTerm(term: string): string[] {
   }
   return next;
 }
+
+export function clearSearchHistory(): void {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    /* quota / private mode */
+  }
+}
