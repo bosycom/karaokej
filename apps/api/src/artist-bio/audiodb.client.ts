@@ -19,10 +19,6 @@ export interface AudioDbDiscographyRecord {
   intYearReleased: string | null;
 }
 
-export interface AudioDbTopTrackRecord {
-  strTrack: string | null;
-}
-
 const USER_AGENT = 'Karaokej/0.1.0 (self-hosted karaoke)';
 const MIN_SPACING_MS = 350;
 
@@ -66,20 +62,6 @@ export class AudioDbClient {
       `discography-mb.php?s=${encodeURIComponent(mbid)}`,
     );
     return data?.album ?? [];
-  }
-
-  async fetchTopTracksByName(name: string): Promise<AudioDbTopTrackRecord[]> {
-    const data = await this.request<{ track: AudioDbTopTrackRecord[] | null }>(
-      `track-top10.php?s=${encodeURIComponent(name)}`,
-    );
-    return data?.track ?? [];
-  }
-
-  async fetchTopTracksByMbid(mbid: string): Promise<AudioDbTopTrackRecord[]> {
-    const data = await this.request<{ track: AudioDbTopTrackRecord[] | null }>(
-      `track-top10-mb.php?s=${encodeURIComponent(mbid)}`,
-    );
-    return data?.track ?? [];
   }
 
   private async request<T>(path: string, attempt = 0): Promise<T | null> {

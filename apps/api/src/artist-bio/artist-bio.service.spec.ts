@@ -5,6 +5,7 @@ import { createMockSession } from '../test/mock-session';
 import { createMockSeparation } from '../test/mock-separation';
 import { createTestDb, insertTrack, TestDbService } from '../test/test-db';
 import { AudioDbClient } from './audiodb.client';
+import { DeezerClient } from './deezer.client';
 
 describe('ArtistBioService', () => {
   let db: TestDbService;
@@ -16,8 +17,9 @@ describe('ArtistBioService', () => {
     lookupArtistById: ReturnType<typeof vi.fn>;
     fetchDiscographyByName: ReturnType<typeof vi.fn>;
     fetchDiscographyByMbid: ReturnType<typeof vi.fn>;
-    fetchTopTracksByName: ReturnType<typeof vi.fn>;
-    fetchTopTracksByMbid: ReturnType<typeof vi.fn>;
+  };
+  let deezer: {
+    fetchTopTracksForArtist: ReturnType<typeof vi.fn>;
   };
   let service: ArtistBioService;
 
@@ -36,13 +38,15 @@ describe('ArtistBioService', () => {
       lookupArtistById: vi.fn(),
       fetchDiscographyByName: vi.fn(),
       fetchDiscographyByMbid: vi.fn(),
-      fetchTopTracksByName: vi.fn(),
-      fetchTopTracksByMbid: vi.fn(),
+    };
+    deezer = {
+      fetchTopTracksForArtist: vi.fn(),
     };
     service = new ArtistBioService(
       db as never,
       library,
       audiodb as unknown as AudioDbClient,
+      deezer as unknown as DeezerClient,
     );
   });
 
@@ -160,14 +164,16 @@ describe('ArtistBioService', () => {
     audiodb.fetchDiscographyByName.mockResolvedValue([
       { strAlbum: 'Parachutes', intYearReleased: '2000' },
     ]);
-    audiodb.fetchTopTracksByName.mockResolvedValue([
-      { strTrack: 'Yellow' },
+    deezer.fetchTopTracksForArtist.mockResolvedValue([
+      { name: 'Yellow' },
+      { name: 'Fix You' },
     ]);
 
     const result = await service.getExtrasForTrack(trackId);
 
     expect(result.albums).toEqual([{ name: 'Parachutes', year: '2000' }]);
-    expect(result.topTracks).toEqual([{ name: 'Yellow' }]);
+    expect(result.topTracks).toEqual([{ name: 'Yellow' }, { name: 'Fix You' }]);
+    expect(deezer.fetchTopTracksForArtist).toHaveBeenCalledWith('Coldplay');
 
     const row = db.raw
       .prepare(`SELECT albums_json, top_tracks_json FROM artist_bios WHERE lookup_key = ?`)
@@ -175,6 +181,39 @@ describe('ArtistBioService', () => {
     expect(JSON.parse(row.albums_json)).toEqual([
       { name: 'Parachutes', year: '2000' },
     ]);
-    expect(JSON.parse(row.top_tracks_json)).toEqual([{ name: 'Yellow' }]);
+    expect(JSON.parse(row.top_tracks_json)).toEqual([
+      { name: 'Yellow' },
+      { name: 'Fix You' },
+    ]);
+  });
+
+  it('returns cached extras without calling Deezer again', async () => {
+    const trackId = insertTrack(db, {
+      relativePath: 'nirvana/come-as-you-are.mp3',
+      title: 'Come as You Are',
+      artist: 'Nirvana',
+    });
+    db.raw
+      .prepare(
+        `INSERT INTO artist_bios (
+           lookup_key, display_name, status, biography, albums_json,
+           top_tracks_json, fetched_at, extras_fetched_at
+         ) VALUES (?, ?, 'ready', ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        'name:nirvana',
+        'Nirvana',
+        'Bio',
+        JSON.stringify([{ name: 'Nevermind', year: '1991' }]),
+        JSON.stringify([{ name: 'Come as You Are' }]),
+        Date.now(),
+        Date.now(),
+      );
+
+    const result = await service.getExtrasForTrack(trackId);
+
+    expect(result.topTracks).toEqual([{ name: 'Come as You Are' }]);
+    expect(deezer.fetchTopTracksForArtist).not.toHaveBeenCalled();
+    expect(audiodb.fetchDiscographyByName).not.toHaveBeenCalled();
   });
 });

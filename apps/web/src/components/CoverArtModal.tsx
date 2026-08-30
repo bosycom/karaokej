@@ -175,24 +175,52 @@ function ArtistBioSection({
           </div>
         </div>
       ) : null}
-      {bio.topTracks.length > 0 ? (
-        <div className="artist-bio-group">
-          <h4>Top tracks</h4>
-          <div className="artist-bio-chips">
+    </div>
+  );
+}
+
+function ArtistBioDetails({
+  bio,
+  onSearch,
+}: {
+  bio: ArtistBioDto;
+  onSearch?: (term: string) => void;
+}) {
+  if (bio.status !== 'ready') {
+    return null;
+  }
+
+  const hasBiography = Boolean(bio.biography);
+  const hasTopTracks = bio.topTracks.length > 0;
+  if (!hasBiography && !hasTopTracks) {
+    return null;
+  }
+
+  return (
+    <div className="cover-modal-details">
+      {hasBiography ? (
+        <div className="artist-bio-group cover-modal-bio">
+          <h4>Biography</h4>
+          <div className="artist-bio-text">{bio.biography}</div>
+        </div>
+      ) : null}
+      {hasTopTracks ? (
+        <div className="artist-bio-group artist-bio-top-tracks">
+          <h4>Top track</h4>
+          <ol className="artist-bio-top-tracks-list">
             {bio.topTracks.map((trackHit) => (
-              <BioChip
-                key={trackHit.name}
-                term={trackHit.name}
-                onSearch={
-                  onSearch
-                    ? (value) => {
-                        handleChipClick(value);
-                      }
-                    : undefined
-                }
-              />
+              <li key={trackHit.name}>
+                {onSearch ? (
+                  <TrackSearchTerm
+                    term={trackHit.name}
+                    onApplySearchTerm={onSearch}
+                  />
+                ) : (
+                  trackHit.name
+                )}
+              </li>
             ))}
-          </div>
+          </ol>
         </div>
       ) : null}
     </div>
@@ -340,14 +368,25 @@ export function CoverArtModal({ track, onClose, onSearch }: CoverArtModalProps) 
               />
             </div>
           </div>
-          {bio?.biography ? (
-            <div className="cover-modal-bio">
-              <div className="artist-bio-text">{bio.biography}</div>
-            </div>
+          {bio ? (
+            <ArtistBioDetails
+              bio={bio}
+              onSearch={onSearch ? handleSearch : undefined}
+            />
           ) : null}
         </div>
       ) : null}
       <div className="modal-actions">
+        {bio?.status === 'ready' ? (
+          <button
+            type="button"
+            className="modal-secondary"
+            onClick={handleRetry}
+            disabled={loading}
+          >
+            Refresh info
+          </button>
+        ) : null}
         <button type="button" className="modal-primary" onClick={onClose}>
           Close
         </button>

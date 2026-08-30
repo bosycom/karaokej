@@ -77,6 +77,13 @@ export class AppConfigService {
     return this.config.get<string>('AUDIODB_API_KEY')?.trim() || '123';
   }
 
+  get deezerBaseUrl(): string {
+    return (
+      this.config.get<string>('DEEZER_BASE_URL')?.replace(/\/$/, '') ??
+      'https://api.deezer.com'
+    );
+  }
+
   get ytsaverPath(): string {
     const raw =
       this.config.get<string>('YTSAVER_PATH') ??

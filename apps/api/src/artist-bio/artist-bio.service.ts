@@ -17,8 +17,8 @@ import {
   AudioDbArtistRecord,
   AudioDbClient,
   AudioDbDiscographyRecord,
-  AudioDbTopTrackRecord,
 } from './audiodb.client';
+import { DeezerClient } from './deezer.client';
 import {
   biographyFromArtistRecord,
   hasLocalArtistAmbiguity,
@@ -54,6 +54,7 @@ export class ArtistBioService {
     private readonly db: DbService,
     private readonly library: LibraryService,
     private readonly audiodb: AudioDbClient,
+    private readonly deezer: DeezerClient,
   ) {}
 
   getForTrack(trackId: number, chosenName?: string | null): Promise<ArtistBioDto> {
@@ -103,7 +104,7 @@ export class ArtistBioService {
         ? this.fetchAlbums(displayName, mbid)
         : this.parseAlbums(row.albums_json),
       row.top_tracks_json == null
-        ? this.fetchTopTracks(displayName, mbid)
+        ? this.fetchTopTracks(displayName)
         : this.parseTopTracks(row.top_tracks_json),
     ]);
     const now = Date.now();
@@ -380,18 +381,11 @@ export class ArtistBioService {
 
   private async fetchTopTracks(
     name: string | null,
-    mbid: string | null,
   ): Promise<ArtistBioTrackDto[]> {
-    let records: AudioDbTopTrackRecord[] = [];
-    if (mbid) {
-      records = await this.audiodb.fetchTopTracksByMbid(mbid);
+    if (!name?.trim()) {
+      return [];
     }
-    if (records.length === 0 && name) {
-      records = await this.audiodb.fetchTopTracksByName(name);
-    }
-    return records
-      .map((track) => ({ name: stringField(track.strTrack) ?? '' }))
-      .filter((track) => track.name);
+    return this.deezer.fetchTopTracksForArtist(name);
   }
 
   private parseAlbums(raw: string): ArtistBioAlbumDto[] {

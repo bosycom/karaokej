@@ -31,6 +31,7 @@ import { SeparationService } from './karaoke/separation.service';
 import { CoversController } from './covers/covers.controller';
 import { CoverService } from './covers/cover.service';
 import { AudioDbClient } from './artist-bio/audiodb.client';
+import { DeezerClient } from './artist-bio/deezer.client';
 import { ArtistBioService } from './artist-bio/artist-bio.service';
 
 @Module({
@@ -77,6 +78,7 @@ import { ArtistBioService } from './artist-bio/artist-bio.service';
     SeparationService,
     CoverService,
     AudioDbClient,
+    DeezerClient,
     ArtistBioService,
   ],
 })
