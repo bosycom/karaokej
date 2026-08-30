@@ -4,7 +4,8 @@ interface PlayTrackModalProps {
   open: boolean;
   trackTitle: string;
   onPlayNow: () => void;
-  onQueue: () => void;
+  onQueueAtEnd: () => void;
+  onQueueAfterCurrent: () => void;
   onCancel: () => void;
   closeOnBackdropClick?: boolean;
 }
@@ -13,7 +14,8 @@ export function PlayTrackModal({
   open,
   trackTitle,
   onPlayNow,
-  onQueue,
+  onQueueAtEnd,
+  onQueueAfterCurrent,
   onCancel,
   closeOnBackdropClick,
 }: PlayTrackModalProps) {
@@ -26,16 +28,19 @@ export function PlayTrackModal({
     >
       <div className="modal-body">
         <p>
-          <strong>{trackTitle}</strong> is ready, but another song is playing. Play it now or add
-          it to the queue?
+          <strong>{trackTitle}</strong> is ready, but another song is playing. Play it now, queue
+          it after the current song, or add it to the end of the playlist?
         </p>
       </div>
       <div className="modal-actions modal-actions-multi">
         <button type="button" onClick={onCancel}>
           Cancel
         </button>
-        <button type="button" onClick={onQueue}>
-          Queue
+        <button type="button" onClick={onQueueAfterCurrent}>
+          After current song
+        </button>
+        <button type="button" onClick={onQueueAtEnd}>
+          Queue at end
         </button>
         <button type="button" className="modal-primary" onClick={onPlayNow}>
           Play now

@@ -4,7 +4,8 @@ import {
   ConflictException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync, renameSync } from 'node:fs';
+import { join } from 'node:path';
 import { YtdlpService } from './ytdlp.service';
 import * as ytdlpCli from './ytdlp-cli';
 
@@ -15,6 +16,7 @@ vi.mock('node:fs', async (importOriginal) => {
     existsSync: vi.fn(),
     mkdirSync: vi.fn(),
     readdirSync: vi.fn(),
+    renameSync: vi.fn(),
     statSync: vi.fn(),
   };
 });
@@ -96,5 +98,36 @@ describe('YtdlpService', () => {
 
   it('rejects invalid video IDs', async () => {
     await expect(service.download('bad')).rejects.toThrow(BadRequestException);
+  });
+
+  it('renames downloaded file before indexing', async () => {
+    const downloadsDir = '/mnt/a/Music/Downloads';
+    const rawName = 'Rihanna_-_Umbrella_Lyrics_ft._JAY-Z [EPtrQpx9VDw].mp3';
+    const cleanedName = 'Rihanna - Umbrella ft. JAY-Z.mp3';
+
+    vi.spyOn(ytdlpCli, 'spawnCollect').mockResolvedValue({
+      stdout: '',
+      stderr: '',
+      code: 0,
+    });
+    vi.mocked(readdirSync).mockReturnValue([rawName] as never);
+    vi.mocked(renameSync).mockImplementation(() => undefined);
+    vi.mocked(existsSync).mockImplementation((path) =>
+      String(path).includes('yt-dlp'),
+    );
+    library.ingestDownloadedFile.mockResolvedValue({
+      title: 'Umbrella ft. JAY-Z',
+      artist: 'Rihanna',
+    } as never);
+
+    await service.download('EPtrQpx9VDw');
+
+    expect(renameSync).toHaveBeenCalledWith(
+      join(downloadsDir, rawName),
+      join(downloadsDir, cleanedName),
+    );
+    expect(library.ingestDownloadedFile).toHaveBeenCalledWith(
+      join(downloadsDir, cleanedName),
+    );
   });
 });

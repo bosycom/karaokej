@@ -94,6 +94,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const checkpointTimer = useRef<number | null>(null);
   const crossfadeRef = useRef<CrossfadeState | null>(null);
   const pendingPromoteRef = useRef(false);
+  const applyGenerationRef = useRef(0);
   const stateRef = useRef(state);
   const liveAudioDurationMsRef = useRef(liveAudioDurationMs);
 
@@ -164,9 +165,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const src = incomingTrackSrc(nextItem.track);
       incoming.src = src;
       incoming.load();
-      incoming.currentTime = 0;
 
       const playIncoming = () => {
+        try {
+          incoming.currentTime = 0;
+        } catch {
+          /* not ready */
+        }
         if (stateRef.current.playback.status === 'playing') {
           void incoming.play().catch(() => undefined);
         }
@@ -227,6 +232,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       shouldStartCrossfade({
         enabledSeconds,
         remainingMs,
+        durationMs,
         hasNext: nextItem != null,
         alreadyFading: false,
         playing: true,
@@ -316,6 +322,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [currentTrack?.id, currentTrack?.lyricStatus]);
 
   const applyPlayback = useCallback(async () => {
+    const generation = ++applyGenerationRef.current;
     const primary = getPrimary();
     if (!primary) {
       return;
@@ -361,14 +368,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       lastSeekSeq.current = state.playback.seekSeq;
       applyingRemote.current = false;
 
-      newPrimary.volume = state.playback.volume;
-      setLiveAudioDurationMs(
+      const promotedDurationMs =
         Number.isFinite(newPrimary.duration) && newPrimary.duration > 0
           ? Math.round(newPrimary.duration * 1000)
-          : 0,
-      );
+          : 0;
+      liveAudioDurationMsRef.current = promotedDurationMs;
+      newPrimary.volume = state.playback.volume;
+      setLiveAudioDurationMs(promotedDurationMs);
       setPositionMs(newPrimary.currentTime * 1000);
 
+      if (generation !== applyGenerationRef.current) {
+        return;
+      }
       if (state.playback.status === 'playing' && newPrimary.paused) {
         try {
           await newPrimary.play();
@@ -393,58 +404,54 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       paused: primary.paused,
     });
 
-    if (trackChanged || swapPlan.shouldSwap) {
+    const sourceChanging = trackChanged || swapPlan.shouldSwap;
+    if (sourceChanging) {
       lastTrackId.current = currentTrack.id;
       lastAppliedSrc.current = nextSrc;
       applyingRemote.current = true;
       if (trackChanged) {
+        liveAudioDurationMsRef.current = 0;
         setLiveAudioDurationMs(0);
       }
       primary.src = nextSrc;
       primary.load();
-
-      if (!trackChanged && swapPlan.restoreTo != null) {
-        const restoreTo = swapPlan.restoreTo;
-        const resume = swapPlan.resumePlayback;
-        const restore = () => {
-          try {
-            primary.currentTime = restoreTo;
-          } catch {
-            /* not ready */
-          }
-          applyingRemote.current = false;
-          if (resume && state.playback.status === 'playing') {
-            void primary.play().catch(() => undefined);
-          }
-        };
-        if (primary.readyState >= 1) {
-          restore();
-        } else {
-          primary.addEventListener('loadedmetadata', restore, { once: true });
-        }
-      }
     }
 
     if (trackChanged || seekChanged) {
       lastSeekSeq.current = state.playback.seekSeq;
       applyingRemote.current = true;
       setPositionMs(state.playback.positionMs);
-      const target = state.playback.positionMs / 1000;
-      const seek = () => {
-        try {
-          primary.currentTime = target;
-        } catch {
-          /* not ready */
-        }
-        applyingRemote.current = false;
-        setPositionMs(primary.currentTime * 1000);
-        maybeUpdateCrossfade();
-      };
-      if (primary.readyState >= 1) {
-        seek();
-      } else {
-        primary.addEventListener('loadedmetadata', seek, { once: true });
+    }
+
+    const needsSeek = trackChanged || seekChanged;
+    const restoreTo =
+      !trackChanged && swapPlan.shouldSwap ? swapPlan.restoreTo : null;
+    const seekTargetSec = needsSeek ? state.playback.positionMs / 1000 : restoreTo;
+
+    if (primary.readyState < 1 && (sourceChanging || needsSeek)) {
+      await new Promise<void>((resolve) => {
+        const finish = () => {
+          primary.removeEventListener('loadedmetadata', finish);
+          primary.removeEventListener('error', finish);
+          resolve();
+        };
+        primary.addEventListener('loadedmetadata', finish);
+        primary.addEventListener('error', finish);
+      });
+      if (generation !== applyGenerationRef.current) {
+        return;
       }
+    }
+
+    if (seekTargetSec != null) {
+      try {
+        primary.currentTime = seekTargetSec;
+      } catch {
+        /* not ready */
+      }
+      applyingRemote.current = false;
+      setPositionMs(primary.currentTime * 1000);
+      maybeUpdateCrossfade();
     }
 
     if (!crossfadeRef.current?.active) {
@@ -460,6 +467,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         remainingMs,
         crossfadeRef.current.overlapStartRemainingMs,
       );
+    }
+
+    if (generation !== applyGenerationRef.current) {
+      return;
     }
 
     const incoming = getIncoming();
@@ -520,46 +531,69 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const primary = getPrimary();
-    if (!primary) {
+    const elements = [audioARef.current, audioBRef.current].filter(
+      (element): element is HTMLAudioElement => element != null,
+    );
+    if (elements.length === 0) {
       return;
     }
 
-    const syncPosition = () => {
-      if (!isPlayer) {
+    const isPrimaryEvent = (event: Event) => event.target === getPrimary();
+
+    const applyPrimaryDuration = (primary: HTMLAudioElement | null) => {
+      if (!primary || !isPlayer || !Number.isFinite(primary.duration) || primary.duration <= 0) {
+        liveAudioDurationMsRef.current = 0;
+        setLiveAudioDurationMs(0);
+        return;
+      }
+      const durationMs = Math.round(primary.duration * 1000);
+      liveAudioDurationMsRef.current = durationMs;
+      setLiveAudioDurationMs(durationMs);
+    };
+
+    const syncPosition = (event: Event) => {
+      if (!isPlayer || !isPrimaryEvent(event)) {
+        return;
+      }
+      const primary = getPrimary();
+      if (!primary) {
         return;
       }
       setPositionMs(primary.currentTime * 1000);
       maybeUpdateCrossfade();
     };
-    const syncDuration = () => {
-      if (!isPlayer || !Number.isFinite(primary.duration) || primary.duration <= 0) {
-        setLiveAudioDurationMs(0);
+    const syncDuration = (event: Event) => {
+      if (!isPrimaryEvent(event)) {
         return;
       }
-      setLiveAudioDurationMs(Math.round(primary.duration * 1000));
+      applyPrimaryDuration(getPrimary());
     };
-    const onEnded = () => {
-      if (isPlayer) {
-        if (crossfadeRef.current?.active) {
-          pendingPromoteRef.current = true;
-        }
-        void api.ended(clientId);
+    const onEnded = (event: Event) => {
+      if (!isPlayer || !isPrimaryEvent(event)) {
+        return;
       }
+      if (crossfadeRef.current?.active) {
+        pendingPromoteRef.current = true;
+      }
+      void api.ended(clientId);
     };
 
-    primary.addEventListener('timeupdate', syncPosition);
-    primary.addEventListener('seeked', syncPosition);
-    primary.addEventListener('loadedmetadata', syncDuration);
-    primary.addEventListener('durationchange', syncDuration);
-    primary.addEventListener('ended', onEnded);
-    syncDuration();
+    for (const element of elements) {
+      element.addEventListener('timeupdate', syncPosition);
+      element.addEventListener('seeked', syncPosition);
+      element.addEventListener('loadedmetadata', syncDuration);
+      element.addEventListener('durationchange', syncDuration);
+      element.addEventListener('ended', onEnded);
+    }
+    applyPrimaryDuration(getPrimary());
     return () => {
-      primary.removeEventListener('timeupdate', syncPosition);
-      primary.removeEventListener('seeked', syncPosition);
-      primary.removeEventListener('loadedmetadata', syncDuration);
-      primary.removeEventListener('durationchange', syncDuration);
-      primary.removeEventListener('ended', onEnded);
+      for (const element of elements) {
+        element.removeEventListener('timeupdate', syncPosition);
+        element.removeEventListener('seeked', syncPosition);
+        element.removeEventListener('loadedmetadata', syncDuration);
+        element.removeEventListener('durationchange', syncDuration);
+        element.removeEventListener('ended', onEnded);
+      }
     };
   }, [clientId, getPrimary, isPlayer, maybeUpdateCrossfade]);
 

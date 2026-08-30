@@ -38,7 +38,7 @@ export function LibraryFiltersModal({
           <span className="filters-modal-label">Minimum rating</span>
           <StarRating
             value={draft.minRating}
-            immediate
+            alwaysExpanded
             compact
             ariaLabel="Minimum rating"
             onConfirm={(rating) =>

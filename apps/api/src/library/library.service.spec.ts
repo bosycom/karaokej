@@ -1,7 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { NotFoundException } from '@nestjs/common';
 import { LibraryService } from './library.service';
 import { createMockSession } from '../test/mock-session';
+import { createMockSeparation } from '../test/mock-separation';
 import { createTestDb, insertTrack, TestDbService } from '../test/test-db';
 
 describe('LibraryService.search', () => {
@@ -15,6 +19,7 @@ describe('LibraryService.search', () => {
       db as never,
       { libraryPaths: [] } as never,
       createMockSession(db),
+      createMockSeparation(),
     );
   });
 
@@ -196,6 +201,7 @@ describe('LibraryService scan job recovery', () => {
       db as never,
       mockConfig as never,
       createMockSession(db),
+      createMockSeparation(),
     );
     db.raw
       .prepare(
@@ -253,6 +259,7 @@ describe('LibraryService.getRandomArtist', () => {
       db as never,
       { libraryPaths: [] } as never,
       createMockSession(db),
+      createMockSeparation(),
     );
   });
 
@@ -310,5 +317,78 @@ describe('LibraryService.getRandomArtist', () => {
 
     const result = library.getRandomArtist('Solo Artist');
     expect(result.artist).toBe('Solo Artist');
+  });
+});
+
+describe('LibraryService.deleteTrackFile', () => {
+  let db: TestDbService;
+  let cleanup: () => void;
+  let library: LibraryService;
+  let libraryRoot: string;
+  let libraryCleanup: () => void;
+
+  beforeEach(() => {
+    ({ db, cleanup } = createTestDb());
+    libraryRoot = mkdtempSync(join(tmpdir(), 'karaokej-lib-'));
+    libraryCleanup = () => rmSync(libraryRoot, { recursive: true, force: true });
+
+    library = new LibraryService(
+      db as never,
+      {
+        resolveUnderLibrary: (relativePath: string) =>
+          join(libraryRoot, relativePath),
+      } as never,
+      createMockSession(db),
+      createMockSeparation(),
+    );
+  });
+
+  afterEach(() => {
+    libraryCleanup();
+    cleanup();
+  });
+
+  it('deletes audio and lrc files and removes catalogue, queue, and playlist rows', () => {
+    const audioPath = join(libraryRoot, 'song.mp3');
+    const lrcPath = join(libraryRoot, 'song.lrc');
+    writeFileSync(audioPath, 'audio');
+    writeFileSync(lrcPath, '[00:00.00]Lyrics');
+
+    const trackId = insertTrack(db, {
+      relativePath: 'song.mp3',
+      title: 'Song',
+      artist: 'Artist',
+    });
+
+    db.raw
+      .prepare(`INSERT INTO queue_items (track_id, position, added_at) VALUES (?, 0, ?)`)
+      .run(trackId, Date.now());
+    db.raw
+      .prepare(
+        `INSERT INTO playlists (name, created_at, updated_at) VALUES ('Test', ?, ?)`,
+      )
+      .run(Date.now(), Date.now());
+    const playlist = db.raw
+      .prepare(`SELECT id FROM playlists LIMIT 1`)
+      .get() as { id: number };
+    db.raw
+      .prepare(
+        `INSERT INTO playlist_items (playlist_id, track_id, position, added_at) VALUES (?, ?, 0, ?)`,
+      )
+      .run(playlist.id, trackId, Date.now());
+
+    library.deleteTrackFile(trackId);
+
+    expect(existsSync(audioPath)).toBe(false);
+    expect(existsSync(lrcPath)).toBe(false);
+    expect(library.getTrack(trackId)).toBeUndefined();
+    expect(
+      db.raw.prepare(`SELECT COUNT(*) AS c FROM queue_items`).get() as { c: number },
+    ).toEqual({ c: 0 });
+    expect(
+      db.raw
+        .prepare(`SELECT COUNT(*) AS c FROM playlist_items WHERE track_id = ?`)
+        .get(trackId) as { c: number },
+    ).toEqual({ c: 0 });
   });
 });

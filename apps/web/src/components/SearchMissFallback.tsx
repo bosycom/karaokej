@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { FiChevronDown } from 'react-icons/fi';
 import {
   TrackDto,
   YoutubeSearchHitDto,
@@ -10,6 +11,7 @@ import { ProcessingText } from './ProcessingText';
 
 interface SearchMissFallbackProps {
   query: string;
+  hasLibraryMatches?: boolean;
   ytdlpAvailable: boolean;
   ytsaverAvailable: boolean;
   downloadRunning: boolean;
@@ -21,6 +23,7 @@ type SearchPhase = 'idle' | 'searching' | 'done';
 
 export function SearchMissFallback({
   query,
+  hasLibraryMatches = false,
   ytdlpAvailable,
   ytsaverAvailable,
   downloadRunning,
@@ -91,145 +94,159 @@ export function SearchMissFallback({
 
   return (
     <div className="search-miss-fallback">
-      <p className="search-miss-lead">
-        No library match for <strong>{query}</strong>.
-      </p>
-
-      <section className="search-miss-section search-miss-download">
-        <h3 className="search-miss-heading">Download</h3>
-        <p className="search-miss-copy">Search and download as mp3</p>
-        <div className="search-miss-actions">
-          <button
-            type="button"
-            disabled={!ytdlpAvailable || searchPhase === 'searching' || downloadRunning}
-            onClick={() => void searchYoutube()}
-          >
-            {searchPhase === 'searching' ? (
-              <ProcessingText>Searching…</ProcessingText>
+      <details className="search-miss-details">
+        <summary className="search-miss-summary">
+          <span className="search-miss-lead">
+            {hasLibraryMatches ? (
+              <>
+                Not the right recording? Search external sources for{' '}
+                <strong>{query}</strong>.
+              </>
             ) : (
-              'YouTube'
+              <>
+                No library match for <strong>{query}</strong>.
+              </>
             )}
-          </button>
-        </div>
-        {!ytdlpAvailable ? (
-          <p className="search-miss-hint">
-            yt-dlp is not available on this host. Set <code>YTDLP_PATH</code> in .env if it
-            is installed elsewhere.
-          </p>
-        ) : null}
-        {downloadRunning && downloadMessage ? (
-          <p className="search-miss-hint">
-            <ProcessingText>{downloadMessage}</ProcessingText>
-          </p>
-        ) : null}
-        {searchError && <p className="search-miss-error">{searchError}</p>}
-        {downloadError && <p className="search-miss-error">{downloadError}</p>}
-        {searchPhase === 'done' && hits.length === 0 && !searchError ? (
-          <p className="search-miss-hint">No YouTube results found.</p>
-        ) : null}
-        {hits.length > 0 ? (
-          <ul className="search-miss-hit-list">
-            {hits.map((hit) => {
-              const meta = [
-                hit.uploader,
-                hit.durationMs != null ? formatDuration(hit.durationMs) : null,
-              ]
-                .filter(Boolean)
-                .join(' · ');
-              const busy =
-                downloadRunning ||
-                downloadingId === hit.id ||
-                downloadingId != null;
-              return (
-                <li key={hit.id} className="search-miss-hit">
-                  <div className="search-miss-hit-text">
-                    <div className="search-miss-hit-title">{hit.title}</div>
-                    {meta ? (
-                      <div className="search-miss-hit-meta">{meta}</div>
-                    ) : null}
-                  </div>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void downloadHit(hit)}
-                  >
-                    {downloadingId === hit.id || downloadRunning ? (
-                      <ProcessingText>Downloading…</ProcessingText>
-                    ) : (
-                      'Download MP3'
-                    )}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        ) : null}
-      </section>
+          </span>
+          <FiChevronDown className="search-miss-chevron" aria-hidden />
+        </summary>
 
-      <section className="search-miss-section">
-        <h3 className="search-miss-heading">Play elsewhere</h3>
-        <p className="search-miss-copy">Search these platforms in a new tab:</p>
-        <div className="search-miss-actions">
-          <a
-            className="search-miss-btn"
-            href={urls.youtube}
-            target="_blank"
-            rel="noreferrer"
-          >
-            YouTube
-          </a>
-          <a
-            className="search-miss-btn"
-            href={urls.spotify}
-            target="_blank"
-            rel="noreferrer"
-          >
-            Spotify
-          </a>
-          <a
-            className="search-miss-btn"
-            href={urls.vimeo}
-            target="_blank"
-            rel="noreferrer"
-          >
-            Vimeo
-          </a>
-        </div>
-      </section>
+        <div className="search-miss-body">
+          <section className="search-miss-section search-miss-download">
+            <h3 className="search-miss-heading">Search and download as mp3</h3>
+            <div className="search-miss-actions">
+              <button
+                type="button"
+                disabled={!ytdlpAvailable || searchPhase === 'searching' || downloadRunning}
+                onClick={() => void searchYoutube()}
+              >
+                {searchPhase === 'searching' ? (
+                  <ProcessingText>Searching…</ProcessingText>
+                ) : (
+                  'YouTube'
+                )}
+              </button>
+            </div>
+            {!ytdlpAvailable ? (
+              <p className="search-miss-hint">
+                yt-dlp is not available on this host. Set <code>YTDLP_PATH</code> in .env if it
+                is installed elsewhere.
+              </p>
+            ) : null}
+            {downloadRunning && downloadMessage ? (
+              <p className="search-miss-hint">
+                <ProcessingText>{downloadMessage}</ProcessingText>
+              </p>
+            ) : null}
+            {searchError && <p className="search-miss-error">{searchError}</p>}
+            {downloadError && <p className="search-miss-error">{downloadError}</p>}
+            {searchPhase === 'done' && hits.length === 0 && !searchError ? (
+              <p className="search-miss-hint">No YouTube results found.</p>
+            ) : null}
+            {hits.length > 0 ? (
+              <ul className="search-miss-hit-list">
+                {hits.map((hit) => {
+                  const meta = [
+                    hit.uploader,
+                    hit.durationMs != null ? formatDuration(hit.durationMs) : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ');
+                  const busy =
+                    downloadRunning ||
+                    downloadingId === hit.id ||
+                    downloadingId != null;
+                  return (
+                    <li key={hit.id} className="search-miss-hit">
+                      <div className="search-miss-hit-text">
+                        <div className="search-miss-hit-title">{hit.title}</div>
+                        {meta ? (
+                          <div className="search-miss-hit-meta">{meta}</div>
+                        ) : null}
+                      </div>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void downloadHit(hit)}
+                      >
+                        {downloadingId === hit.id || downloadRunning ? (
+                          <ProcessingText>Downloading…</ProcessingText>
+                        ) : (
+                          'Download MP3'
+                        )}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : null}
+          </section>
 
-      {showYtsaverFallback ? (
-        <section className="search-miss-section search-miss-ytsaver">
-          <h3 className="search-miss-heading">YT Saver fallback</h3>
-          <p className="search-miss-copy">
-            Open a YouTube result, copy that video&apos;s URL, paste it into YT Saver,
-            then scan the library to add the file.
-          </p>
-          <div className="search-miss-actions">
-            <button type="button" onClick={() => void copyYoutubeSearch()}>
-              {copied ? 'Copied' : 'Copy YouTube search link'}
-            </button>
-            <button
-              type="button"
-              disabled={!ytsaverAvailable || launching}
-              title={
-                ytsaverAvailable
-                  ? 'Launch YT Saver on the Karaokej host'
-                  : 'YT Saver was not found on the server'
-              }
-              onClick={() => void openYtsaver()}
-            >
-              {launching ? <ProcessingText>Opening…</ProcessingText> : 'Open YT Saver'}
-            </button>
-          </div>
-          {!ytsaverAvailable && (
-            <p className="search-miss-hint">
-              YT Saver is not available on this host. Set <code>YTSAVER_PATH</code> in
-              .env if it is installed elsewhere.
-            </p>
-          )}
-          {launchError && <p className="search-miss-error">{launchError}</p>}
-        </section>
-      ) : null}
+          <section className="search-miss-section">
+            <h3 className="search-miss-heading">Search and play on another platform</h3>
+            <div className="search-miss-actions">
+              <a
+                className="search-miss-btn"
+                href={urls.youtube}
+                target="_blank"
+                rel="noreferrer"
+              >
+                YouTube
+              </a>
+              <a
+                className="search-miss-btn"
+                href={urls.spotify}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Spotify
+              </a>
+              <a
+                className="search-miss-btn"
+                href={urls.vimeo}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Vimeo
+              </a>
+            </div>
+          </section>
+
+          {showYtsaverFallback ? (
+            <section className="search-miss-section search-miss-ytsaver">
+              <h3 className="search-miss-heading">YT Saver fallback</h3>
+              <p className="search-miss-copy">
+                Open a YouTube result, copy that video&apos;s URL, paste it into YT Saver,
+                then scan the library to add the file.
+              </p>
+              <div className="search-miss-actions">
+                <button type="button" onClick={() => void copyYoutubeSearch()}>
+                  {copied ? 'Copied' : 'Copy YouTube search link'}
+                </button>
+                <button
+                  type="button"
+                  disabled={!ytsaverAvailable || launching}
+                  title={
+                    ytsaverAvailable
+                      ? 'Launch YT Saver on the Karaokej host'
+                      : 'YT Saver was not found on the server'
+                  }
+                  onClick={() => void openYtsaver()}
+                >
+                  {launching ? <ProcessingText>Opening…</ProcessingText> : 'Open YT Saver'}
+                </button>
+              </div>
+              {!ytsaverAvailable && (
+                <p className="search-miss-hint">
+                  YT Saver is not available on this host. Set <code>YTSAVER_PATH</code> in
+                  .env if it is installed elsewhere.
+                </p>
+              )}
+              {launchError && <p className="search-miss-error">{launchError}</p>}
+            </section>
+          ) : null}
+        </div>
+      </details>
     </div>
   );
 }

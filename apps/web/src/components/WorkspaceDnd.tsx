@@ -14,7 +14,7 @@ import {
 } from '@dnd-kit/core';
 import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
 import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
-import { FiMenu, FiTrash2 } from 'react-icons/fi';
+import { FiMenu, FiShuffle, FiTrash2 } from 'react-icons/fi';
 import { PlaylistDetailDto, PlaylistItemDto, PlaylistSummaryDto, QueueItemDto, TrackDto } from '@karaokej/shared';
 import { api } from '../api';
 import {
@@ -44,6 +44,7 @@ interface WorkspaceDndProps {
   onRemovePlaylistItem: (itemId: number) => void;
   onPlayPlaylist: (id: number) => void;
   onClearQueue: () => void;
+  onShuffleQueue: () => void;
   onPlaylistChanged: (detail: PlaylistDetailDto) => void;
   onPlaylistsRefresh: () => void;
 }
@@ -68,6 +69,7 @@ export function WorkspaceDnd({
   onRemovePlaylistItem,
   onPlayPlaylist,
   onClearQueue,
+  onShuffleQueue,
   onPlaylistChanged,
   onPlaylistsRefresh,
 }: WorkspaceDndProps) {
@@ -261,6 +263,7 @@ export function WorkspaceDnd({
           currentQueueItemId={currentQueueItemId}
           dropActive={dropActive}
           onClearQueue={onClearQueue}
+          onShuffleQueue={onShuffleQueue}
         />
       </div>
       <DragOverlay>
@@ -294,18 +297,38 @@ export function WorkspaceDnd({
   );
 }
 
+function canShuffleQueue(items: QueueItemDto[], currentQueueItemId: number | null): boolean {
+  if (items.length < 2) {
+    return false;
+  }
+  if (!currentQueueItemId) {
+    return true;
+  }
+  const currentIndex = items.findIndex((item) => item.id === currentQueueItemId);
+  if (currentIndex < 0) {
+    return true;
+  }
+  return items.length - currentIndex - 1 >= 2;
+}
+
 function QueuePane({
   items,
   currentQueueItemId,
   dropActive,
   onClearQueue,
+  onShuffleQueue,
 }: {
   items: QueueItemDto[];
   currentQueueItemId: number | null;
   dropActive: boolean;
   onClearQueue: () => void;
+  onShuffleQueue: () => void;
 }) {
   const { setNodeRef } = useDroppable({ id: QUEUE_DROPPABLE });
+  const shuffleEnabled = canShuffleQueue(items, currentQueueItemId);
+  const shuffleLabel = currentQueueItemId
+    ? 'Shuffle upcoming songs'
+    : 'Shuffle queue';
 
   return (
     <aside
@@ -314,16 +337,28 @@ function QueuePane({
     >
       <div className="queue-pane-toolbar">
         <h2>Queue</h2>
-        <button
-          type="button"
-          className="icon-btn"
-          title="Empty queue"
-          aria-label="Empty queue"
-          disabled={items.length === 0}
-          onClick={onClearQueue}
-        >
-          <FiTrash2 aria-hidden />
-        </button>
+        <div className="queue-pane-toolbar-actions">
+          <button
+            type="button"
+            className="icon-btn"
+            title={shuffleLabel}
+            aria-label={shuffleLabel}
+            disabled={!shuffleEnabled}
+            onClick={onShuffleQueue}
+          >
+            <FiShuffle aria-hidden />
+          </button>
+          <button
+            type="button"
+            className="icon-btn"
+            title="Empty queue"
+            aria-label="Empty queue"
+            disabled={items.length === 0}
+            onClick={onClearQueue}
+          >
+            <FiTrash2 aria-hidden />
+          </button>
+        </div>
       </div>
       {items.length === 0 ? (
         <p className="empty">

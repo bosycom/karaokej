@@ -6,6 +6,7 @@ interface Props {
   lyrics: LyricsDto | null;
   positionMs: number;
   hasTrack: boolean;
+  searchingLyrics?: boolean;
 }
 
 const ROLES = ['prev', 'current', 'next', 'upcoming'] as const;
@@ -38,7 +39,7 @@ function stageRows(lines: LyricLine[], active: number): StageRow[] {
   });
 }
 
-export function LyricStage({ lyrics, positionMs, hasTrack }: Props) {
+export function LyricStage({ lyrics, positionMs, hasTrack, searchingLyrics = false }: Props) {
   const reduceMotion = useReducedMotion();
   const previousIndexRef = useRef(0);
 
@@ -53,8 +54,12 @@ export function LyricStage({ lyrics, positionMs, hasTrack }: Props) {
   if (!lyrics || !lyrics.available || lyrics.lines.length === 0) {
     return (
       <div className="lyric-stage empty-stage">
-        <p>No synced lyrics</p>
-        <span>The song will still play. Fetch lyrics from the controller if they are missing.</span>
+        <p>{searchingLyrics ? 'Searching for lyrics…' : 'No synced lyrics'}</p>
+        <span>
+          {searchingLyrics
+            ? 'The song will keep playing while we look for synced lyrics.'
+            : 'The song will still play. Fetch lyrics from the controller if they are missing.'}
+        </span>
       </div>
     );
   }

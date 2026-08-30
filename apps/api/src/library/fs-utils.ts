@@ -87,6 +87,29 @@ export function makeFingerprint(
   ].join('|');
 }
 
+function albumFromRelativePath(parts: string[]): string | null {
+  if (parts.length < 2) {
+    return null;
+  }
+  const parent = parts[parts.length - 2]!;
+  if (parent.toLowerCase() === 'downloads') {
+    return null;
+  }
+  return parent;
+}
+
+function artistFromRelativePath(parts: string[]): string | null {
+  if (parts.length < 3) {
+    return null;
+  }
+  const parent = parts[parts.length - 2];
+  const grandparent = parts[parts.length - 3];
+  if (parent?.toLowerCase() === 'downloads') {
+    return null;
+  }
+  return grandparent ?? null;
+}
+
 export function fallbackMetadata(
   relativePath: string,
   stem: string,
@@ -99,16 +122,14 @@ export function fallbackMetadata(
     return {
       artist: dash[1].trim() || null,
       title: dash[2].trim() || fileStem,
-      album: parts.length >= 2 ? parts[parts.length - 2] : null,
+      album: albumFromRelativePath(parts),
     };
   }
 
-  const album = parts.length >= 2 ? parts[parts.length - 2] : null;
-  const artist = parts.length >= 3 ? parts[parts.length - 3] : null;
   return {
     title: fileStem,
-    artist,
-    album,
+    artist: artistFromRelativePath(parts),
+    album: albumFromRelativePath(parts),
   };
 }
 

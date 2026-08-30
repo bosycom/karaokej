@@ -1,59 +1,62 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { FiCheck } from 'react-icons/fi';
+import { ProcessingText } from './ProcessingText';
+import {
+  formatRatingLabel,
+  ratingTone,
+  unitsLabel,
+} from './starRatingDisplay';
 
 const STAR_PATH =
   'M12 2.4l2.7 5.8 6.3.8-4.6 4.3 1.2 6.2L12 16.6 6.4 19.5l1.2-6.2L3 9l6.3-.8z';
-
-function unitsLabel(units: number): string {
-  if (units <= 0) {
-    return 'Unrated';
-  }
-  const stars = units / 2;
-  return stars === 1 ? '1 star' : `${stars} stars`;
-}
 
 export function StarRating({
   value,
   onConfirm,
   disabled = false,
   compact = false,
-  immediate = false,
+  alwaysExpanded = false,
   ariaLabel = 'Rating',
 }: {
   value: number | null;
   onConfirm: (rating: number) => void | Promise<void>;
   disabled?: boolean;
   compact?: boolean;
-  immediate?: boolean;
+  /** Always show the 5-star picker (e.g. minimum-rating filter). */
+  alwaysExpanded?: boolean;
   ariaLabel?: string;
 }) {
   const saved = value ?? 0;
   const clipId = useId().replace(/:/g, '');
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const [editing, setEditing] = useState(false);
   const [hover, setHover] = useState<number | null>(null);
-  const [pending, setPending] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const dirty = pending != null && pending !== saved;
-  const displayed = dirty ? (pending ?? saved) : (hover ?? pending ?? saved);
+  const displayed = hover ?? saved;
+  const viewLabel = formatRatingLabel(saved);
+  const tone = ratingTone(saved);
 
   useEffect(() => {
-    setPending(null);
+    if (!alwaysExpanded) {
+      setEditing(false);
+    }
     setHover(null);
-  }, [saved]);
+  }, [saved, alwaysExpanded]);
 
   useEffect(() => {
-    if (!dirty) {
+    if (alwaysExpanded || !editing) {
       return;
     }
     const onPointerDown = (event: PointerEvent) => {
       if (!rootRef.current?.contains(event.target as Node)) {
-        setPending(null);
+        setEditing(false);
+        setHover(null);
       }
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setPending(null);
+        setEditing(false);
+        setHover(null);
       }
     };
     document.addEventListener('pointerdown', onPointerDown);
@@ -62,70 +65,108 @@ export function StarRating({
       document.removeEventListener('pointerdown', onPointerDown);
       document.removeEventListener('keydown', onKeyDown);
     };
-  }, [dirty]);
+  }, [alwaysExpanded, editing]);
 
-  const apply = (next: number) => {
+  const apply = async (next: number) => {
     if (disabled || saving) {
       return;
     }
-    if (immediate) {
-      if (next === saved) {
-        void onConfirm(0);
-      } else {
-        void onConfirm(next);
-      }
-      return;
-    }
-    setPending(next === saved ? 0 : next);
-  };
-
-  const confirm = async () => {
-    if (!dirty || disabled || saving || pending == null) {
-      return;
-    }
+    const rating = next === saved ? 0 : next;
     setSaving(true);
     try {
-      await onConfirm(pending);
-      setPending(null);
+      await onConfirm(rating);
+      setEditing(false);
+      setHover(null);
     } finally {
       setSaving(false);
     }
   };
 
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (disabled) {
+    if (disabled || saving) {
       return;
     }
     if (event.key >= '1' && event.key <= '5') {
       event.preventDefault();
-      apply(Number(event.key) * 2);
+      void apply(Number(event.key) * 2);
       return;
     }
     if (event.key === '0') {
       event.preventDefault();
-      apply(0);
+      void apply(0);
       return;
     }
     if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
       event.preventDefault();
-      apply(Math.min(10, (pending ?? saved) + 1));
+      void apply(Math.min(10, saved + 1));
       return;
     }
     if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
       event.preventDefault();
-      apply(Math.max(0, (pending ?? saved) - 1));
+      void apply(Math.max(0, saved - 1));
       return;
     }
-    if (event.key === 'Enter' && dirty) {
-      event.preventDefault();
-      void confirm();
-    }
   };
+
+  const openEditor = () => {
+    if (disabled || saving) {
+      return;
+    }
+    setEditing(true);
+  };
+
+  if (saving) {
+    return (
+      <div
+        ref={rootRef}
+        className={`star-rating star-rating-applying${compact ? ' compact' : ''}`}
+        aria-live="polite"
+        aria-busy="true"
+      >
+        <ProcessingText>Applying…</ProcessingText>
+      </div>
+    );
+  }
+
+  if (!alwaysExpanded && !editing) {
+    const viewAria =
+      saved > 0
+        ? `${ariaLabel}: ${unitsLabel(saved)}. Click to change rating.`
+        : `${ariaLabel}: Unrated. Click to set rating.`;
+
+    return (
+      <div
+        ref={rootRef}
+        className={`star-rating star-rating-view-mode${disabled ? ' disabled' : ''}`}
+      >
+        <button
+          type="button"
+          className={`star-rating-view star-rating-tone-${tone}`}
+          disabled={disabled || saving}
+          aria-label={viewAria}
+          title={saved > 0 ? unitsLabel(saved) : 'Unrated'}
+          onClick={openEditor}
+        >
+          <svg className="star-shape" viewBox="0 0 24 24" aria-hidden>
+            {saved > 0 ? (
+              <path className="star-fill" d={STAR_PATH} />
+            ) : (
+              <path className="star-empty" d={STAR_PATH} />
+            )}
+            <path className="star-stroke" d={STAR_PATH} />
+          </svg>
+          {viewLabel ? (
+            <span className="star-rating-view-label">{viewLabel}</span>
+          ) : null}
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div
       ref={rootRef}
-      className={`star-rating${compact ? ' compact' : ''}${disabled ? ' disabled' : ''}`}
+      className={`star-rating star-rating-edit-mode${compact ? ' compact' : ''}${disabled ? ' disabled' : ''}`}
       onMouseLeave={() => setHover(null)}
     >
       <div
@@ -169,7 +210,7 @@ export function StarRating({
                 disabled={disabled || saving}
                 onMouseEnter={() => setHover(left)}
                 onFocus={() => setHover(left)}
-                onClick={() => apply(left)}
+                onClick={() => void apply(left)}
                 tabIndex={-1}
                 aria-label={unitsLabel(left)}
               />
@@ -179,7 +220,7 @@ export function StarRating({
                 disabled={disabled || saving}
                 onMouseEnter={() => setHover(right)}
                 onFocus={() => setHover(right)}
-                onClick={() => apply(right)}
+                onClick={() => void apply(right)}
                 tabIndex={-1}
                 aria-label={unitsLabel(right)}
               />
@@ -187,18 +228,6 @@ export function StarRating({
           );
         })}
       </div>
-      {dirty && (
-        <button
-          type="button"
-          className="icon-btn star-confirm"
-          disabled={saving}
-          onClick={() => void confirm()}
-          title="Confirm rating"
-          aria-label="Confirm rating"
-        >
-          <FiCheck aria-hidden />
-        </button>
-      )}
     </div>
   );
 }

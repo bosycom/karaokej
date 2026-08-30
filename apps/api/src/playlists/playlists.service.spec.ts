@@ -4,6 +4,7 @@ import { PlaylistsService } from './playlists.service';
 import { QueueService } from '../queue/queue.service';
 import { LibraryService } from '../library/library.service';
 import { createMockSession } from '../test/mock-session';
+import { createMockSeparation } from '../test/mock-separation';
 import { createTestDb, insertTrack, TestDbService } from '../test/test-db';
 
 describe('PlaylistsService', () => {
@@ -24,6 +25,7 @@ describe('PlaylistsService', () => {
       db as never,
       { libraryPaths: [] } as never,
       session,
+      createMockSeparation(),
     );
     trackA = insertTrack(db, {
       relativePath: 'a/song-a.mp3',

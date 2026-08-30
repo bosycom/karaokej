@@ -15,12 +15,18 @@ export class QueueService {
     return this.session.getQueue();
   }
 
-  add(trackId: number): QueueItemDto[] {
+  add(
+    trackId: number,
+    placement: 'end' | 'after_current' = 'end',
+  ): QueueItemDto[] {
     const track = this.db.raw
       .prepare(`SELECT id FROM tracks WHERE id = ? AND available = 1`)
       .get(trackId) as { id: number } | undefined;
     if (!track) {
       throw new NotFoundException('Track not found');
+    }
+    if (placement === 'after_current') {
+      return this.insertTrackAfterCurrent(trackId);
     }
     return this.insertTracks([trackId], false);
   }
@@ -123,6 +129,36 @@ export class QueueService {
     return this.list();
   }
 
+  private insertTrackAfterCurrent(trackId: number): QueueItemDto[] {
+    const playback = this.db.raw
+      .prepare(`SELECT current_queue_item_id FROM playback_state WHERE id = 1`)
+      .get() as { current_queue_item_id: number | null };
+    const currentId = playback.current_queue_item_id;
+    if (!currentId) {
+      return this.insertTracks([trackId], false);
+    }
+    const current = this.db.raw
+      .prepare(`SELECT id, position FROM queue_items WHERE id = ?`)
+      .get(currentId) as { id: number; position: number } | undefined;
+    if (!current) {
+      return this.insertTracks([trackId], false);
+    }
+    const tx = this.db.raw.transaction(() => {
+      this.db.raw
+        .prepare(`UPDATE queue_items SET position = position + 1 WHERE position > ?`)
+        .run(current.position);
+      this.db.raw
+        .prepare(
+          `INSERT INTO queue_items (track_id, position, added_at) VALUES (?, ?, ?)`,
+        )
+        .run(trackId, current.position + 1, Date.now());
+    });
+    tx();
+    this.reindex();
+    this.session.broadcast();
+    return this.list();
+  }
+
   private insertTracksAtEnd(trackIds: number[], positionOffset?: number): void {
     const max = this.db.raw
       .prepare(`SELECT COALESCE(MAX(position), 0) AS n FROM queue_items`)
@@ -188,6 +224,46 @@ export class QueueService {
 
     this.db.raw.prepare(`DELETE FROM queue_items WHERE id = ?`).run(id);
     this.reindex();
+    this.session.broadcast();
+    return this.list();
+  }
+
+  shuffle(): QueueItemDto[] {
+    const items = this.db.raw
+      .prepare(`SELECT id FROM queue_items ORDER BY position ASC, id ASC`)
+      .all() as Array<{ id: number }>;
+    if (items.length < 2) {
+      return this.list();
+    }
+
+    const ids = items.map((item) => item.id);
+    const playback = this.db.raw
+      .prepare(`SELECT current_queue_item_id FROM playback_state WHERE id = 1`)
+      .get() as { current_queue_item_id: number | null };
+
+    let prefixLength = 0;
+    if (playback.current_queue_item_id) {
+      const currentIndex = ids.indexOf(playback.current_queue_item_id);
+      if (currentIndex >= 0) {
+        prefixLength = currentIndex + 1;
+      }
+    }
+
+    const prefix = ids.slice(0, prefixLength);
+    const suffix = ids.slice(prefixLength);
+    if (suffix.length < 2) {
+      return this.list();
+    }
+
+    const shuffled = fisherYatesShuffle(suffix);
+    const nextOrder = [...prefix, ...shuffled];
+    const update = this.db.raw.prepare(
+      `UPDATE queue_items SET position = ? WHERE id = ?`,
+    );
+    const tx = this.db.raw.transaction(() => {
+      nextOrder.forEach((id, index) => update.run(index + 1, id));
+    });
+    tx();
     this.session.broadcast();
     return this.list();
   }
@@ -259,4 +335,13 @@ export class QueueService {
     });
     tx();
   }
+}
+
+function fisherYatesShuffle<T>(items: T[]): T[] {
+  const next = [...items];
+  for (let i = next.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [next[i], next[j]] = [next[j]!, next[i]!];
+  }
+  return next;
 }

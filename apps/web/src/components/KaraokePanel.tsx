@@ -1,10 +1,36 @@
 import { useState } from 'react';
+import { FiChevronDown } from 'react-icons/fi';
+import { KaraokeMode } from '@karaokej/shared';
 import { KaraokeModeControl } from './KaraokeModeControl';
 import { ProcessingText } from './ProcessingText';
 import { useKaraoke } from '../session/useKaraoke';
 import { useLibraryStatus } from '../session/useLibraryStatus';
 import { api } from '../api';
 import { useSession } from '../session/SessionProvider';
+
+const PANEL_OPEN_KEY = 'karaokej.karaokePanelOpen';
+
+const MODE_SUMMARY: Record<KaraokeMode, string> = {
+  off: 'Off',
+  'vocal-reduction': 'Vocal Reduction',
+  ai: 'AI Vocal Removal',
+};
+
+function readPanelOpen(): boolean {
+  try {
+    return localStorage.getItem(PANEL_OPEN_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function writePanelOpen(open: boolean) {
+  try {
+    localStorage.setItem(PANEL_OPEN_KEY, open ? '1' : '0');
+  } catch {
+    /* quota / private mode */
+  }
+}
 
 export function KaraokePanel() {
   const { state } = useSession();
@@ -27,6 +53,7 @@ export function KaraokePanel() {
   const [preparing, setPreparing] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [panelOpen, setPanelOpen] = useState(readPanelOpen);
 
   const disabled = !track;
   const centerPercent = Math.round(karaoke.live.centerAmount * 100);
@@ -63,251 +90,279 @@ export function KaraokePanel() {
     }
   })();
 
+  const stemPreparing =
+    karaoke.mode === 'ai' &&
+    (stem?.status === 'pending' || stem?.status === 'processing');
+
   return (
     <section className="karaoke-panel" aria-label="Karaoke settings">
-      <h2 className="karaoke-panel-title">Karaoke</h2>
-      {statusMessage && <p className="karaoke-panel-status">{statusMessage}</p>}
-
-      <KaraokeModeControl
-        mode={karaoke.mode}
-        disabled={disabled}
-        demucsAvailable={demucsAvailable}
-        onChange={setMode}
-      />
-
-      {karaoke.mode === 'ai' && track && (
-        <div className="karaoke-panel-section">
-          <h3 className="karaoke-panel-subtitle">AI instrumental</h3>
-          {stemStatusLabel && (
-            <p className="karaoke-panel-status">{stemStatusLabel}</p>
-          )}
-          {separationJob.running && separationJob.message && (
-            <p className="karaoke-panel-status">
-              <ProcessingText>{separationJob.message}</ProcessingText>
-            </p>
-          )}
-          {stem?.status === 'failed' && stem.error && (
-            <p className="karaoke-panel-feedback error">{stem.error}</p>
-          )}
-          {demucsAvailable &&
-            stem?.status !== 'ready' &&
-            stem?.status !== 'processing' && (
-              <button
-                type="button"
-                disabled={disabled || preparing}
-                onClick={async () => {
-                  setPreparing(true);
-                  setError(null);
-                  try {
-                    await api.separateTrack(track.id);
-                    setFeedback('Instrumental separation queued.');
-                  } catch (err) {
-                    setError(err instanceof Error ? err.message : String(err));
-                  } finally {
-                    setPreparing(false);
-                  }
-                }}
-              >
-                {preparing ? 'Queueing…' : 'Prepare instrumental'}
-              </button>
-            )}
-        </div>
-      )}
-
-      {karaoke.mode !== 'off' && (
-        <div className="karaoke-panel-section">
-          <h3 className="karaoke-panel-subtitle">Vocal Reduction</h3>
-          <label className="karaoke-slider-label">
-            Centre cancellation
-            <input
-              className="karaoke-slider"
-              type="range"
-              min={0}
-              max={1}
-              step={0.01}
-              value={stemActive ? 0 : karaoke.live.centerAmount}
-              disabled={disabled || stemActive}
-              aria-valuetext={`${stemActive ? 0 : centerPercent} percent`}
-              onChange={(event) => setCenterAmount(Number(event.target.value))}
-            />
-            <span className="karaoke-slider-value">
-              {stemActive ? '0%' : `${centerPercent}%`}
+      <details
+        className="karaoke-panel-details"
+        open={panelOpen}
+        onToggle={(event) => {
+          const open = event.currentTarget.open;
+          setPanelOpen(open);
+          writePanelOpen(open);
+        }}
+      >
+        <summary className="karaoke-panel-summary">
+          <span className="karaoke-panel-summary-row">
+            <h2 className="karaoke-panel-title">Karaoke</h2>
+            <span className="karaoke-panel-summary-mode">
+              {stemPreparing ? (
+                <ProcessingText>Preparing…</ProcessingText>
+              ) : (
+                MODE_SUMMARY[karaoke.mode]
+              )}
             </span>
-          </label>
-          {stemActive && (
-            <p className="karaoke-panel-hint">
-              Centre cancellation is off while the instrumental stem is playing.
-            </p>
+            <FiChevronDown className="karaoke-panel-chevron" aria-hidden />
+          </span>
+        </summary>
+        <div className="karaoke-panel-body">
+          {statusMessage && <p className="karaoke-panel-status">{statusMessage}</p>}
+
+          <KaraokeModeControl
+            mode={karaoke.mode}
+            disabled={disabled}
+            demucsAvailable={demucsAvailable}
+            onChange={setMode}
+          />
+
+          {karaoke.mode === 'ai' && track && (
+            <div className="karaoke-panel-section">
+              <h3 className="karaoke-panel-subtitle">AI instrumental</h3>
+              {stemStatusLabel && (
+                <p className="karaoke-panel-status">{stemStatusLabel}</p>
+              )}
+              {separationJob.running && separationJob.message && (
+                <p className="karaoke-panel-status">
+                  <ProcessingText>{separationJob.message}</ProcessingText>
+                </p>
+              )}
+              {stem?.status === 'failed' && stem.error && (
+                <p className="karaoke-panel-feedback error">{stem.error}</p>
+              )}
+              {demucsAvailable &&
+                stem?.status !== 'ready' &&
+                stem?.status !== 'processing' && (
+                  <button
+                    type="button"
+                    disabled={disabled || preparing}
+                    onClick={async () => {
+                      setPreparing(true);
+                      setError(null);
+                      try {
+                        await api.separateTrack(track.id);
+                        setFeedback('Instrumental separation queued.');
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : String(err));
+                      } finally {
+                        setPreparing(false);
+                      }
+                    }}
+                  >
+                    {preparing ? 'Queueing…' : 'Prepare instrumental'}
+                  </button>
+                )}
+            </div>
           )}
-        </div>
-      )}
 
-      {karaoke.mode !== 'off' && (
-        <details className="karaoke-advanced">
-          <summary>Advanced / EQ</summary>
-          <div className="karaoke-advanced-body">
-            <label className="karaoke-slider-label">
-              Bass retain (Hz)
-              <input
-                className="karaoke-slider"
-                type="range"
-                min={20}
-                max={500}
-                step={1}
-                value={karaoke.live.bassRetainHz}
-                disabled={disabled}
-                onChange={(event) =>
-                  setBassRetainHz(Number(event.target.value))
-                }
-              />
-              <span className="karaoke-slider-value">
-                {Math.round(karaoke.live.bassRetainHz)} Hz
-              </span>
-            </label>
-            <label className="karaoke-slider-label">
-              Treble retain (Hz)
-              <input
-                className="karaoke-slider"
-                type="range"
-                min={2000}
-                max={16000}
-                step={10}
-                value={karaoke.live.trebleRetainHz}
-                disabled={disabled}
-                onChange={(event) =>
-                  setTrebleRetainHz(Number(event.target.value))
-                }
-              />
-              <span className="karaoke-slider-value">
-                {Math.round(karaoke.live.trebleRetainHz)} Hz
-              </span>
-            </label>
-            <label className="karaoke-slider-label">
-              Makeup gain (dB)
-              <input
-                className="karaoke-slider"
-                type="range"
-                min={-12}
-                max={12}
-                step={0.5}
-                value={karaoke.live.makeupGainDb}
-                disabled={disabled}
-                onChange={(event) =>
-                  setMakeupGainDb(Number(event.target.value))
-                }
-              />
-              <span className="karaoke-slider-value">
-                {karaoke.live.makeupGainDb.toFixed(1)} dB
-              </span>
-            </label>
+          {karaoke.mode !== 'off' && (
+            <div className="karaoke-panel-section">
+              <h3 className="karaoke-panel-subtitle">Vocal Reduction</h3>
+              <label className="karaoke-slider-label">
+                Centre cancellation
+                <input
+                  className="karaoke-slider"
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={stemActive ? 0 : karaoke.live.centerAmount}
+                  disabled={disabled || stemActive}
+                  aria-valuetext={`${stemActive ? 0 : centerPercent} percent`}
+                  onChange={(event) => setCenterAmount(Number(event.target.value))}
+                />
+                <span className="karaoke-slider-value">
+                  {stemActive ? '0%' : `${centerPercent}%`}
+                </span>
+              </label>
+              {stemActive && (
+                <p className="karaoke-panel-hint">
+                  Centre cancellation is off while the instrumental stem is playing.
+                </p>
+              )}
+            </div>
+          )}
 
-            {karaoke.live.eqBands.map((band, index) => (
-              <div key={`eq-${index}`} className="karaoke-eq-band">
-                <p className="karaoke-eq-band-title">EQ band {index + 1}</p>
+          {karaoke.mode !== 'off' && (
+            <details className="karaoke-advanced">
+              <summary>Advanced / EQ</summary>
+              <div className="karaoke-advanced-body">
                 <label className="karaoke-slider-label">
-                  Frequency
+                  Bass retain (Hz)
                   <input
                     className="karaoke-slider"
                     type="range"
                     min={20}
+                    max={500}
+                    step={1}
+                    value={karaoke.live.bassRetainHz}
+                    disabled={disabled}
+                    onChange={(event) =>
+                      setBassRetainHz(Number(event.target.value))
+                    }
+                  />
+                  <span className="karaoke-slider-value">
+                    {Math.round(karaoke.live.bassRetainHz)} Hz
+                  </span>
+                </label>
+                <label className="karaoke-slider-label">
+                  Treble retain (Hz)
+                  <input
+                    className="karaoke-slider"
+                    type="range"
+                    min={2000}
                     max={16000}
                     step={10}
-                    value={band.frequency}
+                    value={karaoke.live.trebleRetainHz}
                     disabled={disabled}
                     onChange={(event) =>
-                      setEqBand(index, { frequency: Number(event.target.value) })
+                      setTrebleRetainHz(Number(event.target.value))
                     }
                   />
                   <span className="karaoke-slider-value">
-                    {Math.round(band.frequency)} Hz
+                    {Math.round(karaoke.live.trebleRetainHz)} Hz
                   </span>
                 </label>
                 <label className="karaoke-slider-label">
-                  Gain
+                  Makeup gain (dB)
                   <input
                     className="karaoke-slider"
                     type="range"
-                    min={-24}
-                    max={24}
+                    min={-12}
+                    max={12}
                     step={0.5}
-                    value={band.gain}
+                    value={karaoke.live.makeupGainDb}
                     disabled={disabled}
                     onChange={(event) =>
-                      setEqBand(index, { gain: Number(event.target.value) })
+                      setMakeupGainDb(Number(event.target.value))
                     }
                   />
                   <span className="karaoke-slider-value">
-                    {band.gain.toFixed(1)} dB
+                    {karaoke.live.makeupGainDb.toFixed(1)} dB
                   </span>
                 </label>
-                <label className="karaoke-slider-label">
-                  Q
-                  <input
-                    className="karaoke-slider"
-                    type="range"
-                    min={0.1}
-                    max={18}
-                    step={0.1}
-                    value={band.q}
-                    disabled={disabled}
-                    onChange={(event) =>
-                      setEqBand(index, { q: Number(event.target.value) })
-                    }
-                  />
-                  <span className="karaoke-slider-value">{band.q.toFixed(1)}</span>
-                </label>
-              </div>
-            ))}
-          </div>
-        </details>
-      )}
 
-      <div className="karaoke-panel-actions">
-        <button
-          type="button"
-          disabled={disabled || saving || karaoke.isDefault}
-          onClick={async () => {
-            setSaving(true);
-            setError(null);
-            setFeedback(null);
-            try {
-              await saveForTrack();
-              setFeedback('Saved for this song.');
-            } catch (err) {
-              setError(err instanceof Error ? err.message : String(err));
-            } finally {
-              setSaving(false);
-            }
-          }}
-        >
-          {saving ? 'Saving…' : 'Save for this song'}
-        </button>
-        <button
-          type="button"
-          className="secondary"
-          disabled={disabled || resetting}
-          onClick={async () => {
-            setResetting(true);
-            setError(null);
-            setFeedback(null);
-            try {
-              await resetForTrack();
-              setFeedback('Reset to defaults for this song.');
-            } catch (err) {
-              setError(err instanceof Error ? err.message : String(err));
-            } finally {
-              setResetting(false);
-            }
-          }}
-        >
-          {resetting ? 'Resetting…' : 'Reset song settings'}
-        </button>
-      </div>
-      {feedback && <p className="karaoke-panel-feedback">{feedback}</p>}
-      {error && <p className="karaoke-panel-feedback error">{error}</p>}
-      {!track && (
-        <p className="karaoke-panel-empty">Queue a song to tune karaoke settings.</p>
-      )}
+                {karaoke.live.eqBands.map((band, index) => (
+                  <div key={`eq-${index}`} className="karaoke-eq-band">
+                    <p className="karaoke-eq-band-title">EQ band {index + 1}</p>
+                    <label className="karaoke-slider-label">
+                      Frequency
+                      <input
+                        className="karaoke-slider"
+                        type="range"
+                        min={20}
+                        max={16000}
+                        step={10}
+                        value={band.frequency}
+                        disabled={disabled}
+                        onChange={(event) =>
+                          setEqBand(index, { frequency: Number(event.target.value) })
+                        }
+                      />
+                      <span className="karaoke-slider-value">
+                        {Math.round(band.frequency)} Hz
+                      </span>
+                    </label>
+                    <label className="karaoke-slider-label">
+                      Gain
+                      <input
+                        className="karaoke-slider"
+                        type="range"
+                        min={-24}
+                        max={24}
+                        step={0.5}
+                        value={band.gain}
+                        disabled={disabled}
+                        onChange={(event) =>
+                          setEqBand(index, { gain: Number(event.target.value) })
+                        }
+                      />
+                      <span className="karaoke-slider-value">
+                        {band.gain.toFixed(1)} dB
+                      </span>
+                    </label>
+                    <label className="karaoke-slider-label">
+                      Q
+                      <input
+                        className="karaoke-slider"
+                        type="range"
+                        min={0.1}
+                        max={18}
+                        step={0.1}
+                        value={band.q}
+                        disabled={disabled}
+                        onChange={(event) =>
+                          setEqBand(index, { q: Number(event.target.value) })
+                        }
+                      />
+                      <span className="karaoke-slider-value">{band.q.toFixed(1)}</span>
+                    </label>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+
+          <div className="karaoke-panel-actions">
+            <button
+              type="button"
+              disabled={disabled || saving || karaoke.isDefault}
+              onClick={async () => {
+                setSaving(true);
+                setError(null);
+                setFeedback(null);
+                try {
+                  await saveForTrack();
+                  setFeedback('Saved for this song.');
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : String(err));
+                } finally {
+                  setSaving(false);
+                }
+              }}
+            >
+              {saving ? 'Saving…' : 'Save for this song'}
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              disabled={disabled || resetting}
+              onClick={async () => {
+                setResetting(true);
+                setError(null);
+                setFeedback(null);
+                try {
+                  await resetForTrack();
+                  setFeedback('Reset to defaults for this song.');
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : String(err));
+                } finally {
+                  setResetting(false);
+                }
+              }}
+            >
+              {resetting ? 'Resetting…' : 'Reset song settings'}
+            </button>
+          </div>
+          {feedback && <p className="karaoke-panel-feedback">{feedback}</p>}
+          {error && <p className="karaoke-panel-feedback error">{error}</p>}
+          {!track && (
+            <p className="karaoke-panel-empty">Queue a song to tune karaoke settings.</p>
+          )}
+        </div>
+      </details>
     </section>
   );
 }

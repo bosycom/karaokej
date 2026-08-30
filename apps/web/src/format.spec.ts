@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatTrackSubtitle, karaokeStemBadge } from './format';
+import { formatTrackSubtitle, karaokeStemBadge, lyricDurationMatches } from './format';
 
 describe('formatTrackSubtitle', () => {
   it('shows artist and album with year in parentheses', () => {
@@ -100,5 +100,21 @@ describe('karaokeStemBadge', () => {
     expect(karaokeStemBadge('none')).toBeNull();
     expect(karaokeStemBadge('failed')).toBeNull();
     expect(karaokeStemBadge('unsupported')).toBeNull();
+  });
+});
+
+describe('lyricDurationMatches', () => {
+  it('matches within two seconds', () => {
+    expect(lyricDurationMatches(180_000, 181_500)).toBe(true);
+    expect(lyricDurationMatches(180_000, 178_000)).toBe(true);
+  });
+
+  it('does not match outside tolerance', () => {
+    expect(lyricDurationMatches(180_000, 183_500)).toBe(false);
+  });
+
+  it('returns false when either duration is missing', () => {
+    expect(lyricDurationMatches(null, 180_000)).toBe(false);
+    expect(lyricDurationMatches(180_000, null)).toBe(false);
   });
 });

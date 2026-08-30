@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   estimateScanRate,
+  fallbackMetadata,
   formatPhase1ScanMessage,
   formatPhase2ScanMessage,
   formatScanCompleteMessage,
@@ -37,6 +38,34 @@ async function createLibraryTree(root: string): Promise<void> {
   await writeFile(join(root, '.git', 'ignored.mp3'), 'ignored');
   await writeFile(join(root, 'Rock', 'notes.txt'), 'not audio');
 }
+
+describe('fallbackMetadata', () => {
+  it('parses artist and title from Downloads filenames with dashes', () => {
+    expect(
+      fallbackMetadata(
+        'Music/Downloads/Rihanna - Umbrella ft. JAY-Z.mp3',
+        'Rihanna - Umbrella ft. JAY-Z',
+      ),
+    ).toEqual({
+      artist: 'Rihanna',
+      title: 'Umbrella ft. JAY-Z',
+      album: null,
+    });
+  });
+
+  it('does not treat the library root as artist for Downloads files without dashes', () => {
+    expect(
+      fallbackMetadata(
+        'Music/Downloads/Some_Track [abc12345678].mp3',
+        'Some_Track [abc12345678]',
+      ),
+    ).toEqual({
+      artist: null,
+      title: 'Some_Track [abc12345678]',
+      album: null,
+    });
+  });
+});
 
 describe('isUnchangedFile', () => {
   it('returns false when no catalogue row exists', () => {

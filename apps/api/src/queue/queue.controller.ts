@@ -21,16 +21,22 @@ export class QueueController {
   }
 
   @Post()
-  add(@Body() body: { trackId?: number }) {
+  add(@Body() body: { trackId?: number; placement?: 'end' | 'after_current' }) {
     if (!body?.trackId) {
       return this.queue.list();
     }
-    return this.queue.add(Number(body.trackId));
+    const placement = body.placement === 'after_current' ? 'after_current' : 'end';
+    return this.queue.add(Number(body.trackId), placement);
   }
 
   @Patch('reorder')
   reorder(@Body() body: { ids?: number[] }) {
     return this.queue.reorder(body.ids ?? []);
+  }
+
+  @Post('shuffle')
+  shuffle() {
+    return this.queue.shuffle();
   }
 
   @Delete()

@@ -5,8 +5,8 @@ import {
   Logger,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, renameSync, statSync } from 'node:fs';
+import { basename, join } from 'node:path';
 import {
   TrackDto,
   YoutubeSearchHitDto,
@@ -20,6 +20,10 @@ import {
   spawnCollect,
 } from './ytdlp-cli';
 import { assertYoutubeVideoId } from './ytdlp-path-utils';
+import {
+  cleanYoutubeDownloadBasename,
+  resolveUniqueDownloadBasename,
+} from './youtube-download-name';
 
 interface YtdlpFlatEntry {
   id?: string;
@@ -113,10 +117,12 @@ export class YtdlpService {
         message: 'Indexing downloaded file…',
       });
 
-      const absolutePath = this.findDownloadedFile(downloadsDir, id);
+      let absolutePath = this.findDownloadedFile(downloadsDir, id);
       if (!absolutePath) {
         throw new BadRequestException('Downloaded file was not found on disk');
       }
+
+      absolutePath = this.renameDownloadToCleanName(downloadsDir, absolutePath);
 
       const track = await this.library.ingestDownloadedFile(absolutePath);
       this.library.setJob('download', {
@@ -182,6 +188,25 @@ export class YtdlpService {
       }
     }
     return hits.slice(0, 5);
+  }
+
+  private renameDownloadToCleanName(
+    downloadsDir: string,
+    absolutePath: string,
+  ): string {
+    const originalBasename = basename(absolutePath);
+    const cleanedBasename = cleanYoutubeDownloadBasename(originalBasename);
+    if (cleanedBasename === originalBasename) {
+      return absolutePath;
+    }
+    const uniqueBasename = resolveUniqueDownloadBasename(
+      downloadsDir,
+      cleanedBasename,
+      originalBasename,
+    );
+    const nextPath = join(downloadsDir, uniqueBasename);
+    renameSync(absolutePath, nextPath);
+    return nextPath;
   }
 
   private findDownloadedFile(downloadsDir: string, videoId: string): string | null {
