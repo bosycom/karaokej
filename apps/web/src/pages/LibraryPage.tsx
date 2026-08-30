@@ -33,6 +33,7 @@ import { UiScaleControl } from '../components/UiScaleControl';
 import { PlayPlaylistModal } from '../components/PlayPlaylistModal';
 import { PlayTrackModal } from '../components/PlayTrackModal';
 import { ProcessingText } from '../components/ProcessingText';
+import { ScanModal } from '../components/ScanModal';
 import { ScanIssuesModal } from '../components/ScanIssuesModal';
 import { LyricSearchModal } from '../components/LyricSearchModal';
 import { TrackMetadataModal } from '../components/TrackMetadataModal';
@@ -43,7 +44,6 @@ import { addSearchHistoryTerm, clearSearchHistory, readSearchHistory } from '../
 import { MODAL_IDS } from '../modals/dismissedModals';
 import { useConfirmModal } from '../modals/useConfirmModal';
 import { pageWindow } from '../pagination/pageWindow';
-import { formatRelativeScanTime } from '../format';
 import { useKaraoke } from '../session/useKaraoke';
 import { useSession } from '../session/SessionProvider';
 
@@ -82,6 +82,7 @@ export function LibraryPage() {
   const [removeStemTrack, setRemoveStemTrack] = useState<TrackDto | null>(null);
   const [deleteFileTrack, setDeleteFileTrack] = useState<TrackDto | null>(null);
   const [coverTrack, setCoverTrack] = useState<TrackDto | null>(null);
+  const [scanOpen, setScanOpen] = useState(false);
   const limit = 15;
 
   const loadTracks = async (
@@ -614,8 +615,8 @@ export function LibraryPage() {
                 does not download lyrics.
               </li>
               <li>
-                Scans top-level folders in batches and shows progress in the
-                toolbar (for example{' '}
+                Scans top-level folders in batches and shows progress here
+                (for example{' '}
                 <code>Scanning Rock (3/12) · 1,200 files · ~85/s</code>
                 ).
               </li>
@@ -660,7 +661,7 @@ export function LibraryPage() {
                   Skips tracks that already have lyrics. Requests are rate-limited, so
                   a full pass can take a while.
                 </li>
-                <li>The same toolbar button cancels a running fetch.</li>
+                <li>The same button cancels a running fetch.</li>
               </ul>
             ),
           }
@@ -687,7 +688,7 @@ export function LibraryPage() {
                     Thumbnails are also created on demand as you browse; this pass
                     just does the whole library at once.
                   </li>
-                  <li>The same toolbar button cancels a running pass.</li>
+                  <li>The same button cancels a running pass.</li>
                 </ul>
               ),
             }
@@ -704,11 +705,10 @@ export function LibraryPage() {
               }
             : null;
 
-  const scanJob = state.jobs.scan;
-  const scanProgress =
-    scanJob.running && scanJob.total > 0
-      ? Math.min(100, Math.round((scanJob.current / scanJob.total) * 100))
-      : null;
+  const libraryJobRunning =
+    state.jobs.scan.running ||
+    state.jobs.lyricsFetch.running ||
+    state.jobs.covers.running;
 
   return (
     <div className="app-shell">
@@ -742,6 +742,15 @@ export function LibraryPage() {
           <Link className="topbar-link icon-btn" to="/settings" title="Settings" aria-label="Settings">
             <FiSettings aria-hidden />
           </Link>
+          <button
+            type="button"
+            className={libraryJobRunning ? 'scan-btn-busy' : undefined}
+            aria-expanded={scanOpen}
+            aria-haspopup="dialog"
+            onClick={() => setScanOpen(true)}
+          >
+            Scan
+          </button>
           <Link className="karaoke-link" to="/karaoke">
             Open Karaoke
           </Link>
@@ -749,86 +758,39 @@ export function LibraryPage() {
       </header>
 
       <section className="toolbar">
-        <button
-          type="button"
-          disabled={!state.jobs.scan.running && !status?.libraryConfigured}
-          onClick={handleScanClick}
-        >
-          {state.jobs.scan.running ? 'Cancel scan' : 'Scan library'}
-        </button>
-        {state.jobs.scan.running ? (
-          <button type="button" onClick={handleRefreshScanClick}>
-            Check scan
+        <form className="search" onSubmit={onSearch}>
+          <input
+            name="q"
+            placeholder="Search title, artist, album"
+            value={inputValue}
+            onChange={(event) => setInputValue(event.target.value)}
+            autoComplete="off"
+          />
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={() => void pickRandomArtist()}
+            title="Random"
+            aria-label="Random"
+          >
+            <LuDices aria-hidden />
           </button>
-        ) : null}
-        <button
-          type="button"
-          disabled={
-            !state.jobs.lyricsFetch.running && (status?.trackCount ?? 0) === 0
-          }
-          onClick={handleFetchLyricsClick}
-        >
-          {state.jobs.lyricsFetch.running
-            ? 'Cancel lyrics'
-            : 'Fetch missing lyrics'}
-        </button>
-        <button
-          type="button"
-          disabled={!state.jobs.covers.running && (status?.trackCount ?? 0) === 0}
-          onClick={handleCreateThumbnailsClick}
-        >
-          {state.jobs.covers.running ? 'Cancel thumbnails' : 'Create thumbnails'}
-        </button>
-        <div className="toolbar-status">
-          <p className="status-copy">
-            {status?.libraryConfigured
-              ? `${status.trackCount} tracks · ${status.withLyrics} with lyrics · Last full scan: ${formatRelativeScanTime(status.lastFullScanAt)}`
-              : 'Set MUSIC_LIBRARY_PATH in .env (comma-separated for multiple libraries) and restart the server.'}
-            {scanJob.message ? (
-              <>
-                {' · '}
-                {scanJob.running ? (
-                  <ProcessingText>{scanJob.message}</ProcessingText>
-                ) : (
-                  scanJob.message
-                )}
-              </>
-            ) : null}
-            {state.jobs.lyricsFetch.running && state.jobs.lyricsFetch.message ? (
-              <>
-                {' · '}
-                <ProcessingText>{state.jobs.lyricsFetch.message}</ProcessingText>
-              </>
-            ) : null}
-            {state.jobs.download.running && state.jobs.download.message ? (
-              <>
-                {' · '}
-                <ProcessingText>{state.jobs.download.message}</ProcessingText>
-              </>
-            ) : null}
-            {state.jobs.covers.running && state.jobs.covers.message ? (
-              <>
-                {' · '}
-                <ProcessingText>{state.jobs.covers.message}</ProcessingText>
-              </>
-            ) : null}
-          </p>
-          {scanJob.running ? (
-            <div
-              className={`scan-progress${scanProgress == null ? ' scan-progress-indeterminate' : ''}`}
-              role="progressbar"
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={scanProgress ?? undefined}
-              aria-label="Library scan progress"
-            >
-              <span
-                className="scan-progress-bar"
-                style={scanProgress == null ? undefined : { width: `${scanProgress}%` }}
-              />
-            </div>
-          ) : null}
-        </div>
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={() => setHistoryOpen(true)}
+            title="History"
+            aria-label="History"
+          >
+            <LuHistory aria-hidden />
+          </button>
+          <button type="button" onClick={openFilters}>
+            {filtersButtonLabel(filterCount)}
+          </button>
+          <button type="button" disabled={searchIsClear} onClick={resetSearch}>
+            Reset
+          </button>
+        </form>
       </section>
 
       {error && <p className="error-banner">{error}</p>}
@@ -853,39 +815,6 @@ export function LibraryPage() {
         onShowCover={setCoverTrack}
         library={
           <section className="library-pane">
-            <form className="search" onSubmit={onSearch}>
-              <input
-                name="q"
-                placeholder="Search title, artist, album"
-                value={inputValue}
-                onChange={(event) => setInputValue(event.target.value)}
-                autoComplete="off"
-              />
-              <button
-                type="button"
-                className="icon-btn"
-                onClick={() => void pickRandomArtist()}
-                title="Random"
-                aria-label="Random"
-              >
-                <LuDices aria-hidden />
-              </button>
-              <button
-                type="button"
-                className="icon-btn"
-                onClick={() => setHistoryOpen(true)}
-                title="History"
-                aria-label="History"
-              >
-                <LuHistory aria-hidden />
-              </button>
-              <button type="button" onClick={openFilters}>
-                {filtersButtonLabel(filterCount)}
-              </button>
-              <button type="button" disabled={searchIsClear} onClick={resetSearch}>
-                Reset
-              </button>
-            </form>
             {tracks.length === 0 && !query.trim() ? (
               <p className="empty">No songs match. Scan the library if it is empty.</p>
             ) : (
@@ -985,6 +914,20 @@ export function LibraryPage() {
             </div>
           </section>
         }
+      />
+
+      <ScanModal
+        open={scanOpen}
+        status={status}
+        scan={state.jobs.scan}
+        lyricsFetch={state.jobs.lyricsFetch}
+        download={state.jobs.download}
+        covers={state.jobs.covers}
+        onClose={() => setScanOpen(false)}
+        onScan={handleScanClick}
+        onRefreshScan={handleRefreshScanClick}
+        onFetchLyrics={handleFetchLyricsClick}
+        onCreateThumbnails={handleCreateThumbnailsClick}
       />
 
       {modalCopy && (

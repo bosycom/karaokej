@@ -156,7 +156,13 @@ export function StarRating({
             <path className="star-stroke" d={STAR_PATH} />
           </svg>
           {viewLabel ? (
-            <span className="star-rating-view-label">{viewLabel}</span>
+            <span
+              className={`star-rating-view-label${
+                viewLabel.includes('.') ? ' star-rating-view-label-wide' : ''
+              }`}
+            >
+              {viewLabel}
+            </span>
           ) : null}
         </button>
       </div>
