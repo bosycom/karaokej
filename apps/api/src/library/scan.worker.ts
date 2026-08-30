@@ -38,7 +38,6 @@ function processChunkItems(
   const stats: ScanChunkStats = {
     parsed: 0,
     unchanged: 0,
-    durationFallback: 0,
   };
   const items: ScanChunkItem[] = [];
 
@@ -128,7 +127,7 @@ async function runScan(payload: ScanWorkerStartPayload): Promise<void> {
           groupId: batch.groupId,
           items: [],
           folderComplete: true,
-          stats: { parsed: 0, unchanged: 0, durationFallback: 0 },
+          stats: { parsed: 0, unchanged: 0 },
         });
         continue;
       }

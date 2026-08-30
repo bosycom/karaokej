@@ -11,6 +11,7 @@ import { DbService } from '../db/db.service';
 import { trackToDto } from '../db/types';
 import { lyricPathFor } from '../library/fs-utils';
 import { readTrackMetadata } from '../library/scan-metadata';
+import { resolveReliableDurationMs } from '../library/probe-duration';
 import { upsertTagsTrack } from '../library/scan-track-upsert';
 import { LibraryService } from '../library/library.service';
 import { SessionService } from '../session/session.service';
@@ -31,6 +32,17 @@ export class TrackMetadataService {
     private readonly session: SessionService,
   ) {}
 
+  private async probeDuration(
+    absolute: string,
+    relativePath: string,
+  ): Promise<number | null> {
+    return resolveReliableDurationMs(absolute, {
+      ffprobePath: this.config.ffprobePath,
+      fsTimeoutMs: this.config.scanFsTimeoutMs,
+      relativePath,
+    });
+  }
+
   async readFromFile(trackId: number): Promise<TrackMetadataFileDto> {
     const track = this.library.getTrack(trackId);
     if (!track) {
@@ -43,12 +55,12 @@ export class TrackMetadataService {
 
     const result = await readTrackMetadata(absolute, track.relative_path, {
       fsTimeoutMs: this.config.scanFsTimeoutMs,
-      durationMode: 'full_fallback',
     });
+    const durationMs = await this.probeDuration(absolute, track.relative_path);
     const editable = editableFromParsed(result.metadata);
     return {
       ...editable,
-      durationMs: result.metadata.durationMs,
+      durationMs,
       format: track.format,
     };
   }
@@ -73,7 +85,6 @@ export class TrackMetadataService {
 
     const fileRead = await readTrackMetadata(absolute, track.relative_path, {
       fsTimeoutMs: this.config.scanFsTimeoutMs,
-      durationMode: 'full_fallback',
     });
     const current = editableFromParsed(fileRead.metadata);
     const fileChanged = !metadataEquals(current, desired);
@@ -91,6 +102,7 @@ export class TrackMetadataService {
       hasLrc = false;
     }
 
+    const durationMs = await this.probeDuration(absolute, track.relative_path);
     const parsed = {
       ...fileRead.metadata,
       title: desired.title,
@@ -101,6 +113,7 @@ export class TrackMetadataService {
       year: desired.year,
       genres: desired.genres,
       rating: desired.rating,
+      durationMs,
     };
 
     const now = Date.now();

@@ -4,6 +4,7 @@ import { FiMoreVertical } from 'react-icons/fi';
 export interface IconMenuItem {
   id: string;
   label: string;
+  variant?: 'default' | 'danger';
   onSelect: () => void | Promise<void>;
 }
 
@@ -87,7 +88,11 @@ function IconMenuOption({
   return (
     <button
       type="button"
-      className="icon-menu-item"
+      className={
+        item.variant === 'danger'
+          ? 'icon-menu-item icon-menu-item-danger'
+          : 'icon-menu-item'
+      }
       role="menuitem"
       onClick={() => void onSelect(item)}
     >

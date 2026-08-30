@@ -1,7 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseIntPipe,
   Post,
@@ -123,6 +126,12 @@ export class TracksController {
   @Get(':id/path')
   path(@Param('id', ParseIntPipe) id: number) {
     return this.library.getTrackPath(id);
+  }
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  delete(@Param('id', ParseIntPipe) id: number): void {
+    this.library.deleteTrackFile(id);
   }
 
   @Get(':id')

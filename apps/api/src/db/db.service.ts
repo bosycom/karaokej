@@ -91,6 +91,20 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
       WHERE duration_ms IS NOT NULL
         AND (duration_ms <= 0 OR duration_ms > 86400000)
     `);
+    this.migrateReliableDuration();
+  }
+
+  private migrateReliableDuration(): void {
+    const row = this.db
+      .prepare(`SELECT value FROM app_settings WHERE key = ?`)
+      .get('duration_reliable_v1') as { value: string } | undefined;
+    if (row?.value === '1') {
+      return;
+    }
+    this.db.exec(`UPDATE tracks SET duration_ms = NULL WHERE duration_ms IS NOT NULL`);
+    this.db
+      .prepare(`INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)`)
+      .run('duration_reliable_v1', '1');
   }
 
   onModuleDestroy(): void {

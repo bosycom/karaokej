@@ -32,7 +32,6 @@ export interface ScanChunkItem {
 export interface ScanChunkStats {
   parsed: number;
   unchanged: number;
-  durationFallback: number;
 }
 
 export interface ScanWorkerStartPayload {
@@ -43,7 +42,6 @@ export interface ScanWorkerStartPayload {
   fsTimeoutMs: number;
   skipLrcOnUnchanged: boolean;
   skipUnchangedDirs: boolean;
-  durationMode: 'header_only' | 'full_fallback';
   completedGroups: string[];
   existingByPath: Record<string, { size_bytes: number; mtime_ms: number }>;
   dirMtimes: Record<string, number>;

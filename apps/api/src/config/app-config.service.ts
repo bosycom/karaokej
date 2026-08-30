@@ -87,6 +87,22 @@ export class AppConfigService {
     return isAbsolute(raw) ? raw : resolve(this.repoRoot, raw);
   }
 
+  get ffprobePath(): string {
+    const raw = this.config.get<string>('FFPROBE_PATH')?.trim();
+    if (raw) {
+      return isAbsolute(raw) ? raw : resolve(this.repoRoot, raw);
+    }
+    if (existsSync('/usr/bin/ffprobe')) {
+      return '/usr/bin/ffprobe';
+    }
+    const ffmpeg = this.ffmpegPath;
+    const sibling = ffmpeg.replace(/ffmpeg(\.exe)?$/i, 'ffprobe$1');
+    if (existsSync(sibling)) {
+      return sibling;
+    }
+    return 'ffprobe';
+  }
+
   get demucsPath(): string {
     return this.config.get<string>('DEMUCS_PATH')?.trim() || 'demucs';
   }
@@ -221,14 +237,6 @@ export class AppConfigService {
 
   get scanSkipLrcOnUnchanged(): boolean {
     return envFlag(this.config.get<string>('LIBRARY_SCAN_SKIP_LRC_ON_UNCHANGED'));
-  }
-
-  get scanDurationMode(): 'header_only' | 'full_fallback' {
-    const raw = this.config
-      .get<string>('LIBRARY_SCAN_DURATION_MODE')
-      ?.trim()
-      .toLowerCase();
-    return raw === 'header_only' ? 'header_only' : 'full_fallback';
   }
 
   resolveUnderLibrary(

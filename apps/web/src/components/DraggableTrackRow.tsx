@@ -19,6 +19,7 @@ interface DraggableTrackRowProps {
   onPlay: (track: TrackDto) => void;
   onEditMetadata: (track: TrackDto) => void;
   onRemoveAiStem: (track: TrackDto) => void;
+  onDeleteFile: (track: TrackDto) => void;
 }
 
 export function DraggableTrackRow({
@@ -30,6 +31,7 @@ export function DraggableTrackRow({
   onPlay,
   onEditMetadata,
   onRemoveAiStem,
+  onDeleteFile,
 }: DraggableTrackRowProps) {
   const { listeners, setNodeRef, isDragging } = useDraggable({
     id: trackDragId(track.id),
@@ -139,6 +141,12 @@ export function DraggableTrackRow({
                   },
                 ]
               : []),
+            {
+              id: 'delete-file',
+              label: 'Delete file',
+              variant: 'danger' as const,
+              onSelect: () => onDeleteFile(track),
+            },
           ]}
         />
       </div>

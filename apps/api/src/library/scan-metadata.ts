@@ -3,21 +3,12 @@ import type { IAudioMetadata } from 'music-metadata';
 import { fallbackMetadata } from './fs-utils';
 import { withFsOp } from './fs-timeout';
 import {
-  flacDurationFromHeader,
   HEADER_READ_BYTES,
-  isFlacPath,
-  isMp3Path,
-  isOggContainerPath,
   MIME_BY_EXT,
-  mp3DurationFromHeader,
-  opusDurationFromTail,
   readAudioHeaderBuffer,
-  sanitizeDurationMs,
 } from './duration-utils';
 import { ratingFromMetadata } from '../rating/rating-tags';
 import type { ParsedTrackMetadata } from './scan-ipc';
-
-export type ScanDurationMode = 'header_only' | 'full_fallback';
 
 function yearFromMetadata(common: {
   year?: number | null;
@@ -54,19 +45,10 @@ function genresFromMetadata(common: { genre?: string[] | null }): string[] {
   return genres;
 }
 
-function durationMsFromMeta(meta: IAudioMetadata): number | null {
-  const duration = meta.format.duration;
-  if (duration == null || duration <= 0) {
-    return null;
-  }
-  return sanitizeDurationMs(duration * 1000);
-}
-
 function metadataFromParsed(
   meta: IAudioMetadata,
   relativePath: string,
   stem: string,
-  durationMs: number | null,
 ): ParsedTrackMetadata {
   const fallback = fallbackMetadata(relativePath, stem);
   const common = meta.common;
@@ -79,136 +61,38 @@ function metadataFromParsed(
     album: common.album?.trim() || fallback.album,
     albumArtist: common.albumartist?.trim() || null,
     trackNo: common.track?.no ?? null,
-    durationMs,
+    durationMs: null,
     rating: ratingFromMetadata(meta),
     year: yearFromMetadata(common),
     genres: genresFromMetadata(common),
   };
 }
 
-async function formatSpecificDurationMs(
-  absolutePath: string,
-  headerBuffer: Buffer,
-  fileSize: number,
-): Promise<number | null> {
-  if (isFlacPath(absolutePath)) {
-    return sanitizeDurationMs(flacDurationFromHeader(headerBuffer));
-  }
-  if (isMp3Path(absolutePath)) {
-    return sanitizeDurationMs(mp3DurationFromHeader(headerBuffer, fileSize));
-  }
-  if (isOggContainerPath(absolutePath)) {
-    try {
-      return sanitizeDurationMs(await opusDurationFromTail(absolutePath));
-    } catch {
-      return null;
-    }
-  }
-  return null;
-}
-
-export async function resolveTrackDurationMs(
-  absolutePath: string,
-  meta: IAudioMetadata,
-  parseFile: (
-    path: string,
-    options: { duration: boolean; skipCovers: boolean },
-  ) => Promise<IAudioMetadata>,
-  fsTimeoutMs: number,
-  relativePath: string,
-  options: {
-    durationMode: ScanDurationMode;
-    headerBuffer?: Buffer;
-    fileSize?: number;
-  },
-): Promise<{ durationMs: number | null; usedFallback: boolean }> {
-  const hasHeaderOnlyParse =
-    options.headerBuffer != null && options.fileSize != null;
-  let headerDuration = durationMsFromMeta(meta);
-  if (
-    headerDuration != null &&
-    (isOggContainerPath(absolutePath) || isMp3Path(absolutePath)) &&
-    hasHeaderOnlyParse
-  ) {
-    headerDuration = null;
-  }
-  if (headerDuration != null) {
-    return { durationMs: headerDuration, usedFallback: false };
-  }
-
-  if (hasHeaderOnlyParse) {
-    const formatDuration = await formatSpecificDurationMs(
-      absolutePath,
-      options.headerBuffer!,
-      options.fileSize!,
-    );
-    if (formatDuration != null) {
-      return { durationMs: formatDuration, usedFallback: false };
-    }
-  } else {
-    if (isOggContainerPath(absolutePath)) {
-      try {
-        const tailDuration = sanitizeDurationMs(
-          await opusDurationFromTail(absolutePath),
-        );
-        if (tailDuration != null) {
-          return { durationMs: tailDuration, usedFallback: false };
-        }
-      } catch {
-        /* fall through */
-      }
-    }
-  }
-
-  if (options.durationMode === 'header_only') {
-    return { durationMs: null, usedFallback: false };
-  }
-
-  try {
-    const full = await withFsOp(`parse ${relativePath}`, fsTimeoutMs, () =>
-      parseFile(absolutePath, { duration: true, skipCovers: true }),
-    );
-    return {
-      durationMs: durationMsFromMeta(full),
-      usedFallback: true,
-    };
-  } catch {
-    return { durationMs: null, usedFallback: true };
-  }
-}
-
 export interface ReadTrackMetadataOptions {
   fsTimeoutMs: number;
-  durationMode?: ScanDurationMode;
 }
 
 export interface ReadTrackMetadataResult {
   metadata: ParsedTrackMetadata;
-  usedDurationFallback: boolean;
 }
 
 async function parseTagsFromHeader(
   absolutePath: string,
   fsTimeoutMs: number,
   relativePath: string,
-): Promise<{
-  meta: IAudioMetadata;
-  headerBuffer: Buffer;
-  fileSize: number;
-}> {
+): Promise<IAudioMetadata> {
   const ext = extname(absolutePath).toLowerCase();
   const maxBytes = HEADER_READ_BYTES[ext] ?? 256 * 1024;
   const mimeType = MIME_BY_EXT[ext] ?? 'application/octet-stream';
   const { buffer, fileSize } = await readAudioHeaderBuffer(absolutePath, maxBytes);
   const { parseBuffer } = await import('music-metadata');
-  const meta = await withFsOp(`parse ${relativePath}`, fsTimeoutMs, () =>
+  return withFsOp(`parse ${relativePath}`, fsTimeoutMs, () =>
     parseBuffer(
       buffer,
       { mimeType, size: fileSize },
       { duration: false, skipCovers: true },
     ),
   );
-  return { meta, headerBuffer: buffer, fileSize };
 }
 
 export async function readTrackMetadata(
@@ -216,37 +100,18 @@ export async function readTrackMetadata(
   relativePath: string,
   options: ReadTrackMetadataOptions | number,
 ): Promise<ReadTrackMetadataResult> {
-  const resolved: ReadTrackMetadataOptions =
-    typeof options === 'number'
-      ? { fsTimeoutMs: options, durationMode: 'full_fallback' }
-      : {
-          fsTimeoutMs: options.fsTimeoutMs,
-          durationMode: options.durationMode ?? 'full_fallback',
-        };
+  const fsTimeoutMs =
+    typeof options === 'number' ? options : options.fsTimeoutMs;
   const stem = basename(absolutePath, extname(absolutePath));
   const fallback = fallbackMetadata(relativePath, stem);
   try {
-    const { parseFile } = await import('music-metadata');
-    const { meta, headerBuffer, fileSize } = await parseTagsFromHeader(
+    const meta = await parseTagsFromHeader(
       absolutePath,
-      resolved.fsTimeoutMs,
+      fsTimeoutMs,
       relativePath,
-    );
-    const { durationMs, usedFallback } = await resolveTrackDurationMs(
-      absolutePath,
-      meta,
-      parseFile,
-      resolved.fsTimeoutMs,
-      relativePath,
-      {
-        durationMode: resolved.durationMode ?? 'full_fallback',
-        headerBuffer,
-        fileSize,
-      },
     );
     return {
-      metadata: metadataFromParsed(meta, relativePath, stem, durationMs),
-      usedDurationFallback: usedFallback,
+      metadata: metadataFromParsed(meta, relativePath, stem),
     };
   } catch {
     return {
@@ -259,21 +124,8 @@ export async function readTrackMetadata(
         year: null,
         genres: [],
       },
-      usedDurationFallback: false,
     };
   }
-}
-
-export async function resolveDurationForTrack(
-  absolutePath: string,
-  relativePath: string,
-  fsTimeoutMs: number,
-): Promise<number | null> {
-  const result = await readTrackMetadata(absolutePath, relativePath, {
-    fsTimeoutMs,
-    durationMode: 'full_fallback',
-  });
-  return result.metadata.durationMs;
 }
 
 export async function mapWithConcurrency<T, R>(

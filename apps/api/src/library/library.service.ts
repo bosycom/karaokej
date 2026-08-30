@@ -1,11 +1,12 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
   OnModuleInit,
 } from '@nestjs/common';
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, statSync, unlinkSync } from 'node:fs';
 import { access, constants } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import {
@@ -21,6 +22,7 @@ import { AppConfigService } from '../config/app-config.service';
 import { DbService } from '../db/db.service';
 import { JobRow, TrackRow, trackToDto } from '../db/types';
 import { loadStemRowsForTracks, resolveStemStatusForTrack } from '../karaoke/stem-status';
+import { SeparationService } from '../karaoke/separation.service';
 import { SessionService } from '../session/session.service';
 import {
   estimateScanRate,
@@ -31,7 +33,7 @@ import {
   makeFingerprint,
   yieldEventLoop,
 } from './fs-utils';
-import { sanitizeDurationMs, isImplausiblyShortDuration } from './duration-utils';
+import { sanitizeDurationMs } from './duration-utils';
 import {
   planMultiRootRebase,
   parseStoredScanRoots,
@@ -59,8 +61,8 @@ import type { ScanChunkItem } from './scan-ipc';
 import {
   mapWithConcurrency,
   readTrackMetadata,
-  resolveDurationForTrack,
 } from './scan-metadata';
+import { resolveReliableDurationMs } from './probe-duration';
 import { upsertPathTrack, upsertTagsTrack } from './scan-track-upsert';
 
 const LIBRARY_SCAN_ROOT_KEY = 'library_scan_root';
@@ -95,6 +97,7 @@ export class LibraryService implements OnModuleInit {
     private readonly db: DbService,
     private readonly config: AppConfigService,
     private readonly session: SessionService,
+    private readonly separation: SeparationService,
   ) {}
 
   onModuleInit(): void {
@@ -234,6 +237,89 @@ export class LibraryService implements OnModuleInit {
     return { path: absolute };
   }
 
+  deleteTrackFile(trackId: number): void {
+    const track = this.getTrack(trackId);
+    if (!track || track.available !== 1) {
+      throw new NotFoundException('Track not found');
+    }
+
+    if (this.separation.getProcessingTrackId() === trackId) {
+      throw new ConflictException(
+        'Cannot delete track while AI separation is in progress',
+      );
+    }
+
+    const absolute = this.config.resolveUnderLibrary(track.relative_path);
+    if (!absolute) {
+      throw new BadRequestException('Track path is outside the music library');
+    }
+
+    try {
+      this.separation.remove(trackId);
+    } catch (err) {
+      if (!(err instanceof NotFoundException)) {
+        throw err;
+      }
+    }
+
+    if (existsSync(absolute)) {
+      try {
+        unlinkSync(absolute);
+      } catch (err) {
+        this.logger.warn(
+          `Failed to delete audio file ${absolute}: ${err instanceof Error ? err.message : err}`,
+        );
+        throw new BadRequestException('Failed to delete audio file from disk');
+      }
+    }
+
+    const lrcPath = lyricPathFor(absolute);
+    if (existsSync(lrcPath)) {
+      try {
+        unlinkSync(lrcPath);
+      } catch (err) {
+        this.logger.warn(
+          `Failed to delete lyrics file ${lrcPath}: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }
+
+    const queueRows = this.db.raw
+      .prepare(`SELECT id FROM queue_items WHERE track_id = ?`)
+      .all(trackId) as Array<{ id: number }>;
+    const deletedQueueItemIds = new Set(queueRows.map((row) => row.id));
+    const playback = this.db.raw
+      .prepare(`SELECT current_queue_item_id FROM playback_state WHERE id = 1`)
+      .get() as { current_queue_item_id: number | null };
+    const currentQueueRemoved =
+      playback.current_queue_item_id != null &&
+      deletedQueueItemIds.has(playback.current_queue_item_id);
+
+    const now = Date.now();
+    const tx = this.db.raw.transaction((id: number) => {
+      this.db.raw
+        .prepare(`DELETE FROM playlist_items WHERE track_id = ?`)
+        .run(id);
+      this.db.raw.prepare(`DELETE FROM tracks WHERE id = ?`).run(id);
+    });
+    tx(trackId);
+
+    if (currentQueueRemoved) {
+      const first = this.db.raw
+        .prepare(
+          `SELECT id FROM queue_items ORDER BY position ASC, id ASC LIMIT 1`,
+        )
+        .get() as { id: number } | undefined;
+      this.db.raw
+        .prepare(
+          `UPDATE playback_state SET current_queue_item_id = ?, status = ?, position_ms = 0, seek_seq = seek_seq + 1, updated_at = ? WHERE id = 1`,
+        )
+        .run(first?.id ?? null, first ? 'paused' : 'idle', now);
+    }
+
+    this.session.broadcast();
+  }
+
   async ingestDownloadedFile(absolutePath: string): Promise<TrackDto> {
     if (!existsSync(absolutePath)) {
       throw new BadRequestException('Downloaded file not found');
@@ -290,14 +376,19 @@ export class LibraryService implements OnModuleInit {
 
     const result = await readTrackMetadata(absolutePath, relativePath, {
       fsTimeoutMs: this.config.scanFsTimeoutMs,
-      durationMode: this.config.scanDurationMode,
     });
+    const durationMs = await resolveReliableDurationMs(absolutePath, {
+      ffprobePath: this.config.ffprobePath,
+      fsTimeoutMs: this.config.scanFsTimeoutMs,
+      relativePath,
+    });
+    const metadata = { ...result.metadata, durationMs };
     const itemWithMeta: ScanChunkItem = {
       ...pathItem,
-      metadata: result.metadata,
+      metadata,
       hasLrc,
     };
-    this.upsertTagsTrackInTx(itemWithMeta, result.metadata, now);
+    this.upsertTagsTrackInTx(itemWithMeta, metadata, now);
 
     const row = this.db.raw
       .prepare(`SELECT ${TRACK_SELECT_COLUMNS} FROM tracks WHERE relative_path = ?`)
@@ -313,10 +404,7 @@ export class LibraryService implements OnModuleInit {
     if (!track) {
       return;
     }
-    const needsBackfill =
-      track.duration_ms == null ||
-      isImplausiblyShortDuration(track.duration_ms, track.size_bytes);
-    if (!needsBackfill) {
+    if (track.duration_ms != null) {
       return;
     }
     if (this.durationBackfillInFlight.has(trackId)) {
@@ -326,24 +414,16 @@ export class LibraryService implements OnModuleInit {
     if (!absolute) {
       return;
     }
-    const previousDuration = track.duration_ms;
 
     this.durationBackfillInFlight.add(trackId);
-    void resolveDurationForTrack(
-      absolute,
-      track.relative_path,
-      this.config.scanFsTimeoutMs,
-    )
+    void resolveReliableDurationMs(absolute, {
+      ffprobePath: this.config.ffprobePath,
+      fsTimeoutMs: this.config.scanFsTimeoutMs,
+      relativePath: track.relative_path,
+    })
       .then((durationMs) => {
         const safeDuration = sanitizeDurationMs(durationMs);
         if (safeDuration == null) {
-          return;
-        }
-        if (
-          previousDuration != null &&
-          safeDuration <= previousDuration &&
-          !isImplausiblyShortDuration(previousDuration, track.size_bytes)
-        ) {
           return;
         }
         const fingerprint = makeFingerprint(
@@ -645,7 +725,6 @@ export class LibraryService implements OnModuleInit {
       let sessionProcessed = 0;
       const startedAt = Date.now();
       let skippedDirs = 0;
-      let durationFallbackTotal = 0;
 
       for (let rootIndex = startRootIndex; rootIndex < roots.length; rootIndex += 1) {
         const root = roots[rootIndex]!;
@@ -682,16 +761,12 @@ export class LibraryService implements OnModuleInit {
           sessionProcessed,
           startedAt,
           skippedDirs,
-          durationFallbackTotal,
           walkErrors,
           onSessionProcessed: (count) => {
             sessionProcessed += count;
           },
           onSkippedDirs: (count) => {
             skippedDirs = count;
-          },
-          onDurationFallback: (count) => {
-            durationFallbackTotal = count;
           },
           onProcessed: (count) => {
             processed = count;
@@ -700,7 +775,6 @@ export class LibraryService implements OnModuleInit {
 
         sessionProcessed = result.sessionProcessed;
         skippedDirs = result.skippedDirs;
-        durationFallbackTotal = result.durationFallbackTotal;
         processed = result.processed;
 
         if (this.scanCancelRequested) {
@@ -716,12 +790,6 @@ export class LibraryService implements OnModuleInit {
 
       this.saveScanIssues(walkErrors);
 
-      if (durationFallbackTotal > 0) {
-        this.logger.log(
-          `Scan used full-file duration decode for ${durationFallbackTotal.toLocaleString()} tracks (set LIBRARY_SCAN_DURATION_MODE=header_only on network libraries)`,
-        );
-      }
-
       const staleIds = existing
         .filter((row) => !seen.has(row.relative_path))
         .map((row) => row.id);
@@ -730,7 +798,6 @@ export class LibraryService implements OnModuleInit {
       }
 
       await this.runPhase2Metadata(walkErrors);
-      await this.backfillImplausiblyShortDurations();
 
       if (this.scanCancelRequested) {
         this.setJob('scan', {
@@ -790,16 +857,13 @@ export class LibraryService implements OnModuleInit {
     sessionProcessed: number;
     startedAt: number;
     skippedDirs: number;
-    durationFallbackTotal: number;
     walkErrors: ScanIssueDto[];
     onSessionProcessed: (count: number) => void;
     onSkippedDirs: (count: number) => void;
-    onDurationFallback: (count: number) => void;
     onProcessed: (count: number) => void;
   }): Promise<{
     sessionProcessed: number;
     skippedDirs: number;
-    durationFallbackTotal: number;
     processed: number;
   }> {
     const {
@@ -814,7 +878,7 @@ export class LibraryService implements OnModuleInit {
       progressEstimate,
       walkErrors,
     } = options;
-    let { sessionProcessed, skippedDirs, durationFallbackTotal } = options;
+    let { sessionProcessed, skippedDirs } = options;
     let processed = seen.size;
     let currentFolder: {
       label: string;
@@ -876,7 +940,6 @@ export class LibraryService implements OnModuleInit {
       fsTimeoutMs: this.config.scanFsTimeoutMs,
       skipLrcOnUnchanged: this.config.scanSkipLrcOnUnchanged,
       skipUnchangedDirs: this.config.scanSkipUnchangedDirs,
-      durationMode: this.config.scanDurationMode,
       completedGroups,
       existingByPath: Object.fromEntries(walkerExistingByPath.entries()),
       dirMtimes: walkerDirMtimes,
@@ -965,14 +1028,8 @@ export class LibraryService implements OnModuleInit {
             this.processScanChunkBatch(prefixedItems);
             sessionProcessed += prefixedItems.length;
             processed = seen.size;
-            durationFallbackTotal += message.stats.durationFallback;
             options.onSessionProcessed(sessionProcessed);
-            options.onDurationFallback(durationFallbackTotal);
-            if (message.stats.durationFallback > 0) {
-              this.logger.log(
-                `Scan chunk ${message.groupId}: ${message.stats.parsed} parsed, ${message.stats.unchanged} unchanged, ${message.stats.durationFallback} full duration decode`,
-              );
-            } else if (message.stats.parsed > 0) {
+            if (message.stats.parsed > 0) {
               this.logger.debug(
                 `Scan chunk ${message.groupId}: ${message.stats.parsed} parsed, ${message.stats.unchanged} unchanged`,
               );
@@ -1010,7 +1067,6 @@ export class LibraryService implements OnModuleInit {
     return {
       sessionProcessed,
       skippedDirs,
-      durationFallbackTotal,
       processed,
     };
   }
@@ -1111,13 +1167,11 @@ export class LibraryService implements OnModuleInit {
     }
 
     let completed = 0;
-    let phase2DurationFallback = 0;
     const total = pending.length;
     const startedAt = Date.now();
     const batchSize = Math.max(50, Math.min(this.config.scanChunkSize, 500));
     const concurrency = this.config.scanMetadataConcurrency;
     const fsTimeoutMs = this.config.scanFsTimeoutMs;
-    const durationMode = this.config.scanDurationMode;
 
     const updatePhase2Progress = () => {
       const rate = estimateScanRate(completed, Date.now() - startedAt);
@@ -1137,13 +1191,13 @@ export class LibraryService implements OnModuleInit {
       }
 
       const batch = pending.slice(offset, offset + batchSize);
-      const batchResults = await mapWithConcurrency(batch, concurrency, async (row) => {
+      await mapWithConcurrency(batch, concurrency, async (row) => {
         if (this.scanCancelRequested) {
-          return { usedFallback: false };
+          return;
         }
         const absolute = this.config.resolveUnderLibrary(row.relative_path);
         if (!absolute) {
-          return { usedFallback: false };
+          return;
         }
 
         let hasLrc = false;
@@ -1157,7 +1211,6 @@ export class LibraryService implements OnModuleInit {
         try {
           const result = await readTrackMetadata(absolute, row.relative_path, {
             fsTimeoutMs,
-            durationMode,
           });
           const now = Date.now();
           const item: ScanChunkItem = {
@@ -1171,104 +1224,20 @@ export class LibraryService implements OnModuleInit {
             metadata: result.metadata,
           };
           this.upsertTagsTrackInTx(item, result.metadata, now);
-          return { usedFallback: result.usedDurationFallback };
         } catch (err) {
           walkErrors.push({
             path: row.relative_path,
             op: 'parse',
             message: err instanceof Error ? err.message : String(err),
           });
-          return { usedFallback: false };
         }
       });
-
-      phase2DurationFallback += batchResults.filter((r) => r.usedFallback).length;
 
       completed += batch.length;
       updatePhase2Progress();
       this.session.broadcast();
       await yieldEventLoop();
     }
-
-    if (phase2DurationFallback > 0) {
-      this.logger.log(
-        `Tag phase used full-file duration decode for ${phase2DurationFallback.toLocaleString()} tracks`,
-      );
-    }
-  }
-
-  private async backfillImplausiblyShortDurations(): Promise<void> {
-    const candidates = this.db.raw
-      .prepare(
-        `SELECT id, relative_path, duration_ms, size_bytes, artist, title
-         FROM tracks
-         WHERE available = 1
-           AND metadata_status = 'ready'
-           AND duration_ms IS NOT NULL
-           AND duration_ms < 30000
-           AND size_bytes > 0`,
-      )
-      .all() as Array<{
-      id: number;
-      relative_path: string;
-      duration_ms: number;
-      size_bytes: number;
-      artist: string | null;
-      title: string;
-    }>;
-
-    const toFix = candidates.filter((row) =>
-      isImplausiblyShortDuration(row.duration_ms, row.size_bytes),
-    );
-    if (toFix.length === 0) {
-      return;
-    }
-
-    this.logger.log(
-      `Backfilling implausibly short durations for ${toFix.length.toLocaleString()} tracks`,
-    );
-
-    const fsTimeoutMs = this.config.scanFsTimeoutMs;
-    const concurrency = this.config.scanMetadataConcurrency;
-
-    await mapWithConcurrency(toFix, concurrency, async (row) => {
-      if (this.scanCancelRequested) {
-        return;
-      }
-      const absolute = this.config.resolveUnderLibrary(row.relative_path);
-      if (!absolute) {
-        return;
-      }
-      try {
-        const durationMs = await resolveDurationForTrack(
-          absolute,
-          row.relative_path,
-          fsTimeoutMs,
-        );
-        const safeDuration = sanitizeDurationMs(durationMs);
-        if (safeDuration == null || safeDuration <= row.duration_ms) {
-          return;
-        }
-        const fingerprint = makeFingerprint(
-          row.artist,
-          row.title,
-          row.size_bytes,
-          safeDuration,
-        );
-        const now = Date.now();
-        this.db.raw
-          .prepare(
-            `UPDATE tracks SET duration_ms = ?, fingerprint = ?, updated_at = ? WHERE id = ?`,
-          )
-          .run(safeDuration, fingerprint, now, row.id);
-      } catch (err) {
-        this.logger.warn(
-          `Duration backfill failed for ${row.relative_path}: ${err instanceof Error ? err.message : err}`,
-        );
-      }
-    });
-
-    this.session.broadcast();
   }
 
   private markAvailable(relativePath: string): void {

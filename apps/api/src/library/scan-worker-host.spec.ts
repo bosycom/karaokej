@@ -29,7 +29,6 @@ describe('ScanWorkerHost', () => {
         fsTimeoutMs: 1000,
         skipLrcOnUnchanged: false,
         skipUnchangedDirs: false,
-        durationMode: 'header_only',
         completedGroups: [],
         existingByPath: {},
         dirMtimes: {},
@@ -51,7 +50,7 @@ describe('ScanWorkerHost', () => {
       groupId: 'Rock',
       items: [],
       folderComplete: true,
-      stats: { parsed: 0, unchanged: 0, durationFallback: 0 },
+      stats: { parsed: 0, unchanged: 0 },
     } satisfies ScanWorkerToHostMessage);
     worker.emit('message', {
       type: 'done',
@@ -79,7 +78,6 @@ describe('ScanWorkerHost', () => {
         fsTimeoutMs: 1000,
         skipLrcOnUnchanged: false,
         skipUnchangedDirs: false,
-        durationMode: 'header_only',
         completedGroups: [],
         existingByPath: {},
         dirMtimes: {},
