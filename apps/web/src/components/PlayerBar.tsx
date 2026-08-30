@@ -78,11 +78,6 @@ export function PlayerBar({
           />
         )}
         <strong>{trackLabel(track)}</strong>
-        {!compact && (
-          <span>
-            {formatDuration(displayed)} / {formatDuration(durationLabelMs)}
-          </span>
-        )}
         {track && (
           <LyricStatusBadge
             status={track.lyricStatus}
@@ -191,6 +186,11 @@ export function PlayerBar({
           }}
           aria-label="Seek"
         />
+        {!compact && (
+          <span className="player-time">
+            {formatDuration(displayed)} / {formatDuration(durationLabelMs)}
+          </span>
+        )}
         <label className="volume">
           Vol
           <input
