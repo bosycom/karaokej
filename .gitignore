@@ -10,3 +10,4 @@ apps/api/dist/
 packages/shared/dist/
 temp/
 .cursor/
+docs/
