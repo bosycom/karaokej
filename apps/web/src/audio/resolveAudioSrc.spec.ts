@@ -20,6 +20,10 @@ const track = {
   metadataStatus: 'ready' as const,
   audioVersion: 5_012_345,
   karaokeStemStatus: null,
+  coverGroup: null,
+  coverVersion: null,
+  coverStatus: 'pending' as const,
+  musicbrainzArtistId: null,
 };
 
 describe('resolveAudioSrc', () => {

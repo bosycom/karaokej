@@ -16,6 +16,7 @@ export interface ParsedTrackMetadata {
   rating: number;
   year: number | null;
   genres: string[];
+  musicbrainzArtistId: string | null;
 }
 
 export interface ScanChunkItem {

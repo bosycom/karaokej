@@ -236,6 +236,10 @@ describe('KaraokeAudioEngine', () => {
         metadataStatus: 'ready',
         audioVersion: 1234,
         karaokeStemStatus: null,
+        coverGroup: null,
+        coverVersion: null,
+        coverStatus: 'pending' as const,
+        musicbrainzArtistId: null,
       },
     );
     await engine.sync();

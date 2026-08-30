@@ -31,6 +31,10 @@ function queueItem(id: number, position: number, trackId: number): QueueItemDto 
       metadataStatus: 'ready',
       audioVersion: 1_000 + trackId,
       karaokeStemStatus: null,
+      coverGroup: null,
+      coverVersion: null,
+      coverStatus: 'pending' as const,
+      musicbrainzArtistId: null,
     },
     stem: null,
   };

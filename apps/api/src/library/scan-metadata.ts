@@ -65,7 +65,15 @@ function metadataFromParsed(
     rating: ratingFromMetadata(meta),
     year: yearFromMetadata(common),
     genres: genresFromMetadata(common),
+    musicbrainzArtistId: musicbrainzArtistIdFromMetadata(common),
   };
+}
+
+function musicbrainzArtistIdFromMetadata(common: {
+  musicbrainz_artistid?: string[] | null;
+}): string | null {
+  const raw = common.musicbrainz_artistid?.[0]?.trim();
+  return raw || null;
 }
 
 export interface ReadTrackMetadataOptions {
@@ -123,6 +131,7 @@ export async function readTrackMetadata(
         rating: 0,
         year: null,
         genres: [],
+        musicbrainzArtistId: null,
       },
     };
   }

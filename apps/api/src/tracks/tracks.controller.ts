@@ -21,6 +21,8 @@ import { TrackMetadataService } from '../metadata/track-metadata.service';
 import { SeparationService } from '../karaoke/separation.service';
 import { StreamService } from '../stream/stream.service';
 import { NotFoundException } from '@nestjs/common';
+import { ArtistBioService } from '../artist-bio/artist-bio.service';
+import { ArtistBioChooseDto } from '@karaokej/shared';
 
 @Controller('tracks')
 export class TracksController {
@@ -31,6 +33,7 @@ export class TracksController {
     private readonly ratings: RatingService,
     private readonly metadata: TrackMetadataService,
     private readonly separation: SeparationService,
+    private readonly artistBio: ArtistBioService,
   ) {}
 
   @Get()
@@ -137,6 +140,29 @@ export class TracksController {
   @HttpCode(HttpStatus.NO_CONTENT)
   delete(@Param('id', ParseIntPipe) id: number): void {
     this.library.deleteTrackFile(id);
+  }
+
+  @Get(':id/artist-bio')
+  artistBioFor(@Param('id', ParseIntPipe) id: number) {
+    return this.artistBio.getForTrack(id);
+  }
+
+  @Post(':id/artist-bio/choose')
+  chooseArtistBio(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: ArtistBioChooseDto,
+  ) {
+    return this.artistBio.chooseForTrack(id, body);
+  }
+
+  @Post(':id/artist-bio/refresh')
+  refreshArtistBio(@Param('id', ParseIntPipe) id: number) {
+    return this.artistBio.refreshForTrack(id);
+  }
+
+  @Get(':id/artist-bio/extras')
+  artistBioExtras(@Param('id', ParseIntPipe) id: number) {
+    return this.artistBio.getExtrasForTrack(id);
   }
 
   @Get(':id')
