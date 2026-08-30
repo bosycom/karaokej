@@ -1,16 +1,24 @@
-import { readFile, writeFile } from 'node:fs/promises';
-import { atomicReplace } from './atomic-replace';
+import { open, readFile } from 'node:fs/promises';
+import { safePatchRegion, safeReplaceWithBuffer } from './safe-file-write';
 import {
   applyMetadataComments,
   parseVorbisCommentPacket,
   serializeVorbisCommentPacket,
   setRatingComment,
+  type VorbisComment,
   type VorbisMetadataInput,
 } from './vorbis-comment';
 
 const OGGS = Buffer.from('OggS');
 const OPUS_HEAD = Buffer.from('OpusHead');
 const OPUS_TAGS = Buffer.from('OpusTags');
+
+/**
+ * Padding reserved when the file has to be rebuilt anyway. RFC 7845 allows trailing
+ * data after the comment list, so later edits can grow into it while the packet, and
+ * with it every Ogg page and every audio byte offset, keeps its size.
+ */
+const RESERVED_PADDING_BYTES = 4096;
 
 const CRC_TABLE = (() => {
   const table = new Uint32Array(256);
@@ -38,6 +46,12 @@ interface OggPage {
   serial: number;
   sequence: number;
   segments: Buffer[];
+}
+
+interface PageEntry {
+  page: OggPage;
+  start: number;
+  end: number;
 }
 
 function readPage(data: Buffer, offset: number): { page: OggPage; next: number } {
@@ -158,76 +172,184 @@ function pagesForPacket(
   return pages;
 }
 
-function parseOgg(data: Buffer): OggPage[] {
-  const pages: OggPage[] = [];
+function parseOgg(data: Buffer): PageEntry[] {
+  const entries: PageEntry[] = [];
   let offset = 0;
   while (offset < data.length) {
     const { page, next } = readPage(data, offset);
-    pages.push(page);
+    entries.push({ page, start: offset, end: next });
     offset = next;
   }
-  return pages;
+  return entries;
 }
 
-async function rewriteOpusTagPacket(
-  absolutePath: string,
-  nextPacket: Buffer,
-): Promise<void> {
-  const data = await readFile(absolutePath);
-  const pages = parseOgg(data);
-  if (pages.length === 0) {
+interface OpusLayout {
+  head: PageEntry[];
+  tags: PageEntry[];
+  rest: PageEntry[];
+  /** The complete comment packet, `OpusTags` magic included. */
+  tagPacket: Buffer;
+  tagStart: number;
+  tagEnd: number;
+}
+
+function isContinued(page: OggPage): boolean {
+  return (
+    page.segments.length > 0 &&
+    page.segments[page.segments.length - 1].length === 255
+  );
+}
+
+function readOpusLayout(data: Buffer): OpusLayout {
+  const entries = parseOgg(data);
+  if (entries.length === 0) {
     throw new Error('Empty Ogg file');
   }
-  const headPages: OggPage[] = [];
-  const tagPages: OggPage[] = [];
-  const rest: OggPage[] = [];
+  const head: PageEntry[] = [];
+  const tags: PageEntry[] = [];
+  const rest: PageEntry[] = [];
   let stage: 'head' | 'tags' | 'audio' = 'head';
-  for (const page of pages) {
+  for (const entry of entries) {
     if (stage === 'head') {
-      headPages.push(page);
-      const packet = packetFromPages(headPages);
-      if (packet.length >= 8 && packet.subarray(0, 8).equals(OPUS_HEAD)) {
-        const continued = page.segments.length > 0 && page.segments[page.segments.length - 1].length === 255;
-        if (!continued) {
-          stage = 'tags';
-        }
+      head.push(entry);
+      const packet = packetFromPages(head.map((item) => item.page));
+      if (
+        packet.length >= 8 &&
+        packet.subarray(0, 8).equals(OPUS_HEAD) &&
+        !isContinued(entry.page)
+      ) {
+        stage = 'tags';
       }
       continue;
     }
     if (stage === 'tags') {
-      tagPages.push(page);
-      const packet = packetFromPages(tagPages);
-      if (packet.length >= 8 && packet.subarray(0, 8).equals(OPUS_TAGS)) {
-        const continued = page.segments.length > 0 && page.segments[page.segments.length - 1].length === 255;
-        if (!continued) {
-          stage = 'audio';
-        }
+      tags.push(entry);
+      const packet = packetFromPages(tags.map((item) => item.page));
+      if (
+        packet.length >= 8 &&
+        packet.subarray(0, 8).equals(OPUS_TAGS) &&
+        !isContinued(entry.page)
+      ) {
+        stage = 'audio';
       }
       continue;
     }
-    rest.push(page);
+    rest.push(entry);
   }
 
-  if (headPages.length === 0 || tagPages.length === 0) {
+  if (head.length === 0 || tags.length === 0) {
     throw new Error('Opus identification or comment header is missing');
   }
+  const tagPacket = packetFromPages(tags.map((item) => item.page));
+  if (!tagPacket.subarray(0, 8).equals(OPUS_TAGS)) {
+    throw new Error('Opus comment header is invalid');
+  }
+  return {
+    head,
+    tags,
+    rest,
+    tagPacket,
+    tagStart: tags[0].start,
+    tagEnd: tags[tags.length - 1].end,
+  };
+}
 
-  const serial = headPages[0].serial;
-  const newTagPages = pagesForPacket(nextPacket, serial, headPages.length, 0, 0);
-  const sequenceBase = headPages.length + newTagPages.length;
-  const rewrittenRest = rest.map((page, index) => ({
-    ...page,
-    sequence: sequenceBase + index,
-  }));
+/**
+ * Re-emits the given pages carrying `packet`, keeping every page and segment size
+ * exactly as it was. Only the body bytes and the page checksums change, so the file
+ * length and all audio offsets stay put.
+ */
+function rebuildPagesInPlace(entries: PageEntry[], packet: Buffer): Buffer {
+  const capacity = entries.reduce(
+    (sum, entry) =>
+      sum +
+      entry.page.segments.reduce((inner, segment) => inner + segment.length, 0),
+    0,
+  );
+  if (capacity !== packet.length) {
+    throw new Error(
+      `Comment packet is ${packet.length} bytes but the existing pages hold ${capacity}`,
+    );
+  }
+  const parts: Buffer[] = [];
+  let cursor = 0;
+  for (const entry of entries) {
+    const segments = entry.page.segments.map((segment) => {
+      const next = packet.subarray(cursor, cursor + segment.length);
+      cursor += segment.length;
+      return next;
+    });
+    parts.push(writePage({ ...entry.page, segments }));
+  }
+  return Buffer.concat(parts);
+}
 
-  const out = Buffer.concat([
-    ...headPages.map(writePage),
-    ...newTagPages.map(writePage),
-    ...rewrittenRest.map(writePage),
+function rebuildFile(layout: OpusLayout, packet: Buffer): Buffer {
+  const serial = layout.head[0].page.serial;
+  const tagPages = pagesForPacket(packet, serial, layout.head.length, 0, 0);
+  const sequenceBase = layout.head.length + tagPages.length;
+  return Buffer.concat([
+    ...layout.head.map((entry) => writePage(entry.page)),
+    ...tagPages.map(writePage),
+    ...layout.rest.map((entry, index) =>
+      writePage({ ...entry.page, sequence: sequenceBase + index }),
+    ),
+  ]);
+}
+
+function padPacket(packet: Buffer, totalBytes: number): Buffer {
+  const padded = Buffer.alloc(totalBytes);
+  packet.copy(padded, 0);
+  return padded;
+}
+
+function verifyPrefix(expected: Buffer): (path: string) => Promise<void> {
+  return async (path: string) => {
+    const handle = await open(path, 'r');
+    try {
+      const actual = Buffer.alloc(expected.length);
+      const { bytesRead } = await handle.read(actual, 0, expected.length, 0);
+      if (bytesRead !== expected.length || !actual.equals(expected)) {
+        throw new Error(`${path} does not start with the expected Ogg headers`);
+      }
+    } finally {
+      await handle.close();
+    }
+  };
+}
+
+async function updateOpusComments(
+  absolutePath: string,
+  transform: (comments: VorbisComment[]) => VorbisComment[],
+): Promise<void> {
+  const data = await readFile(absolutePath);
+  const layout = readOpusLayout(data);
+  const parsed = parseVorbisCommentPacket(layout.tagPacket.subarray(8));
+  const packet = Buffer.concat([
+    OPUS_TAGS,
+    serializeVorbisCommentPacket(parsed.vendor, transform(parsed.comments)),
   ]);
 
-  await atomicReplace(absolutePath, async (tempPath) => {
-    await writeFile(tempPath, out);
+  // Padding the packet back to its original length keeps the segment tables, and
+  // therefore every page size and every audio byte offset, unchanged. Only the tag
+  // pages need rewriting, which a client streaming the file never notices.
+  if (packet.length <= layout.tagPacket.length) {
+    const region = rebuildPagesInPlace(
+      layout.tags,
+      padPacket(packet, layout.tagPacket.length),
+    );
+    if (region.length === layout.tagEnd - layout.tagStart) {
+      await safePatchRegion(absolutePath, region, layout.tagStart);
+      return;
+    }
+  }
+
+  const grown = rebuildFile(
+    layout,
+    padPacket(packet, packet.length + RESERVED_PADDING_BYTES),
+  );
+  await safeReplaceWithBuffer(absolutePath, grown, {
+    verify: verifyPrefix(grown.subarray(0, Math.min(grown.length, 65536))),
   });
 }
 
@@ -235,106 +357,16 @@ export async function writeOpusMetadata(
   absolutePath: string,
   metadata: VorbisMetadataInput,
 ): Promise<void> {
-  const data = await readFile(absolutePath);
-  const pages = parseOgg(data);
-  if (pages.length === 0) {
-    throw new Error('Empty Ogg file');
-  }
-  const headPages: OggPage[] = [];
-  const tagPages: OggPage[] = [];
-  let stage: 'head' | 'tags' = 'head';
-  for (const page of pages) {
-    if (stage === 'head') {
-      headPages.push(page);
-      const packet = packetFromPages(headPages);
-      if (packet.length >= 8 && packet.subarray(0, 8).equals(OPUS_HEAD)) {
-        const continued = page.segments.length > 0 && page.segments[page.segments.length - 1].length === 255;
-        if (!continued) {
-          stage = 'tags';
-        }
-      }
-      continue;
-    }
-    if (stage === 'tags') {
-      tagPages.push(page);
-      const packet = packetFromPages(tagPages);
-      if (packet.length >= 8 && packet.subarray(0, 8).equals(OPUS_TAGS)) {
-        const continued = page.segments.length > 0 && page.segments[page.segments.length - 1].length === 255;
-        if (!continued) {
-          break;
-        }
-      }
-    }
-  }
-  const tagPacket = packetFromPages(tagPages);
-  if (!tagPacket.subarray(0, 8).equals(OPUS_TAGS)) {
-    throw new Error('Opus comment header is invalid');
-  }
-  const parsed = parseVorbisCommentPacket(tagPacket.subarray(8));
-  const nextPacket = Buffer.concat([
-    OPUS_TAGS,
-    serializeVorbisCommentPacket(
-      parsed.vendor,
-      applyMetadataComments(parsed.comments, metadata),
-    ),
-  ]);
-  await rewriteOpusTagPacket(absolutePath, nextPacket);
+  await updateOpusComments(absolutePath, (comments) =>
+    applyMetadataComments(comments, metadata),
+  );
 }
 
 export async function writeOpusRating(
   absolutePath: string,
   rating: number,
 ): Promise<void> {
-  const data = await readFile(absolutePath);
-  const pages = parseOgg(data);
-  if (pages.length === 0) {
-    throw new Error('Empty Ogg file');
-  }
-  const headPages: OggPage[] = [];
-  const tagPages: OggPage[] = [];
-  const rest: OggPage[] = [];
-  let stage: 'head' | 'tags' | 'audio' = 'head';
-  for (const page of pages) {
-    if (stage === 'head') {
-      headPages.push(page);
-      const packet = packetFromPages(headPages);
-      if (packet.length >= 8 && packet.subarray(0, 8).equals(OPUS_HEAD)) {
-        const continued = page.segments.length > 0 && page.segments[page.segments.length - 1].length === 255;
-        if (!continued) {
-          stage = 'tags';
-        }
-      }
-      continue;
-    }
-    if (stage === 'tags') {
-      tagPages.push(page);
-      const packet = packetFromPages(tagPages);
-      if (packet.length >= 8 && packet.subarray(0, 8).equals(OPUS_TAGS)) {
-        const continued = page.segments.length > 0 && page.segments[page.segments.length - 1].length === 255;
-        if (!continued) {
-          stage = 'audio';
-        }
-      }
-      continue;
-    }
-    rest.push(page);
-  }
-
-  if (headPages.length === 0 || tagPages.length === 0) {
-    throw new Error('Opus identification or comment header is missing');
-  }
-
-  const tagPacket = packetFromPages(tagPages);
-  if (!tagPacket.subarray(0, 8).equals(OPUS_TAGS)) {
-    throw new Error('Opus comment header is invalid');
-  }
-  const parsed = parseVorbisCommentPacket(tagPacket.subarray(8));
-  const nextPacket = Buffer.concat([
-    OPUS_TAGS,
-    serializeVorbisCommentPacket(
-      parsed.vendor,
-      setRatingComment(parsed.comments, rating),
-    ),
-  ]);
-  await rewriteOpusTagPacket(absolutePath, nextPacket);
+  await updateOpusComments(absolutePath, (comments) =>
+    setRatingComment(comments, rating),
+  );
 }

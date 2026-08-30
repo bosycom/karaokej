@@ -234,6 +234,7 @@ describe('KaraokeAudioEngine', () => {
         year: null,
         genres: [],
         metadataStatus: 'ready',
+        audioVersion: 1234,
         karaokeStemStatus: null,
       },
     );

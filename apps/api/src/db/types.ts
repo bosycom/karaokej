@@ -72,6 +72,7 @@ export function trackToDto(
     year: row.year,
     genres: parseGenres(row.genres),
     metadataStatus: row.metadata_status ?? 'ready',
+    audioVersion: row.size_bytes,
     karaokeStemStatus,
   };
 }

@@ -11,7 +11,16 @@ export function resolveAudioSrc(
   ) {
     return karaoke.stem.url;
   }
-  return `/api/tracks/${track.id}/audio`;
+  return audioUrl(track);
+}
+
+/**
+ * The version guards against the browser mixing cached byte ranges from before and
+ * after a tag write that moved the audio frames. Tag edits that keep the file length
+ * leave it unchanged, so playback is never interrupted for those.
+ */
+export function audioUrl(track: TrackDto): string {
+  return `/api/tracks/${track.id}/audio?v=${track.audioVersion}`;
 }
 
 export interface SourceSwapPlan {

@@ -29,6 +29,7 @@ function queueItem(id: number, position: number, trackId: number): QueueItemDto 
       year: null,
       genres: [],
       metadataStatus: 'ready',
+      audioVersion: 1_000 + trackId,
       karaokeStemStatus: null,
     },
     stem: null,
@@ -55,6 +56,7 @@ describe('shouldStartCrossfade', () => {
       shouldStartCrossfade({
         enabledSeconds: 5,
         remainingMs: 4_900,
+        durationMs: 180_000,
         hasNext: true,
         alreadyFading: false,
         playing: true,
@@ -62,10 +64,24 @@ describe('shouldStartCrossfade', () => {
     ).toBe(true);
   });
 
+  it('does not start when duration is unknown', () => {
+    expect(
+      shouldStartCrossfade({
+        enabledSeconds: 5,
+        remainingMs: 0,
+        durationMs: 0,
+        hasNext: true,
+        alreadyFading: false,
+        playing: true,
+      }),
+    ).toBe(false);
+  });
+
   it('does not start when disabled, paused, missing next, or already fading', () => {
     const base = {
       enabledSeconds: 5,
       remainingMs: 1_000,
+      durationMs: 180_000,
       hasNext: true,
       alreadyFading: false,
       playing: true,

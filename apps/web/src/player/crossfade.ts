@@ -1,4 +1,5 @@
 import type { QueueItemDto, TrackDto } from '@karaokej/shared';
+import { audioUrl } from '../audio/resolveAudioSrc';
 
 export interface CrossfadeState {
   active: boolean;
@@ -27,11 +28,18 @@ export function nextQueueItem(
 export function shouldStartCrossfade(input: {
   enabledSeconds: number;
   remainingMs: number;
+  durationMs: number;
   hasNext: boolean;
   alreadyFading: boolean;
   playing: boolean;
 }): boolean {
-  if (input.enabledSeconds <= 0 || !input.playing || !input.hasNext || input.alreadyFading) {
+  if (
+    input.enabledSeconds <= 0 ||
+    input.durationMs <= 0 ||
+    !input.playing ||
+    !input.hasNext ||
+    input.alreadyFading
+  ) {
     return false;
   }
   return input.remainingMs <= input.enabledSeconds * 1000;
@@ -49,7 +57,7 @@ export function crossfadeGains(
 }
 
 export function incomingTrackSrc(track: TrackDto): string {
-  return `/api/tracks/${track.id}/audio`;
+  return audioUrl(track);
 }
 
 export function shouldPromoteCrossfade(input: {

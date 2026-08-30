@@ -18,14 +18,21 @@ const track = {
   year: null,
   genres: [],
   metadataStatus: 'ready' as const,
+  audioVersion: 5_012_345,
   karaokeStemStatus: null,
 };
 
 describe('resolveAudioSrc', () => {
   it('uses normal audio when karaoke is off', () => {
     expect(resolveAudioSrc(track, defaultKaraokeState())).toBe(
-      '/api/tracks/42/audio',
+      '/api/tracks/42/audio?v=5012345',
     );
+  });
+
+  it('changes the url when a rewrite moved the audio frames', () => {
+    expect(
+      resolveAudioSrc({ ...track, audioVersion: 5_016_441 }, defaultKaraokeState()),
+    ).not.toBe(resolveAudioSrc(track, defaultKaraokeState()));
   });
 
   it('uses stem url when ai mode and stem is ready', () => {

@@ -1,7 +1,7 @@
 import { createReadStream, createWriteStream } from 'node:fs';
 import { open } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
-import { atomicReplace } from './atomic-replace';
+import { safePatchRegion, safeReplaceWithTempFile } from './safe-file-write';
 import {
   applyMetadataComments,
   parseVorbisCommentPacket,
@@ -13,6 +13,12 @@ import {
 const FLAC_MAGIC = Buffer.from('fLaC');
 const BLOCK_VORBIS_COMMENT = 4;
 const BLOCK_PADDING = 1;
+
+/**
+ * Padding reserved when the metadata has to be rebuilt anyway, so that later tag
+ * edits fit in place and never move the audio frames again.
+ */
+const RESERVED_PADDING_BYTES = 8192;
 
 interface FlacBlock {
   type: number;
@@ -149,6 +155,28 @@ function fitWithPadding(blocks: FlacBlock[], targetMetaBytes: number): Buffer | 
   return encodeMetadata(padded);
 }
 
+function withReservedPadding(blocks: FlacBlock[]): FlacBlock[] {
+  return [
+    ...blocks.filter((block) => block.type !== BLOCK_PADDING),
+    { type: BLOCK_PADDING, data: Buffer.alloc(RESERVED_PADDING_BYTES) },
+  ];
+}
+
+/**
+ * Confirms the metadata still ends exactly where the audio frames start, which is
+ * what keeps in-flight range requests valid.
+ */
+function verifyAudioOffset(audioOffset: number): (path: string) => Promise<void> {
+  return async (path: string) => {
+    const { audioOffset: actual } = await readBlocks(path);
+    if (actual !== audioOffset) {
+      throw new Error(
+        `${path} audio now starts at ${actual}, expected ${audioOffset}`,
+      );
+    }
+  };
+}
+
 async function writeFlacBlocks(
   absolutePath: string,
   updated: FlacBlock[],
@@ -156,23 +184,24 @@ async function writeFlacBlocks(
 ): Promise<void> {
   const inPlace = fitWithPadding(updated, audioOffset);
   if (inPlace) {
-    const fh = await open(absolutePath, 'r+');
-    try {
-      await fh.write(inPlace, 0, inPlace.length, 0);
-    } finally {
-      await fh.close();
-    }
+    await safePatchRegion(absolutePath, inPlace, 0, {
+      verify: verifyAudioOffset(audioOffset),
+    });
     return;
   }
 
-  await atomicReplace(absolutePath, async (tempPath) => {
-    const header = encodeMetadata(updated);
-    const out = createWriteStream(tempPath);
-    await new Promise<void>((resolve, reject) => {
-      out.write(header, (err) => (err ? reject(err) : resolve()));
-    });
-    await pipeline(createReadStream(absolutePath, { start: audioOffset }), out);
-  });
+  const header = encodeMetadata(withReservedPadding(updated));
+  await safeReplaceWithTempFile(
+    absolutePath,
+    async (tempPath) => {
+      const out = createWriteStream(tempPath);
+      await new Promise<void>((resolve, reject) => {
+        out.write(header, (err) => (err ? reject(err) : resolve()));
+      });
+      await pipeline(createReadStream(absolutePath, { start: audioOffset }), out);
+    },
+    { verify: verifyAudioOffset(header.length) },
+  );
 }
 
 export async function writeFlacMetadata(

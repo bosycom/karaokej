@@ -22,6 +22,7 @@ const baseItem: QueueItemDto = {
     year: null,
     genres: [],
     metadataStatus: 'ready',
+    audioVersion: 1234,
     karaokeStemStatus: null,
   },
   stem: null,

@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { createReadStream, existsSync, statSync } from 'node:fs';
+import { createReadStream, statSync, type Stats } from 'node:fs';
 import { Request, Response } from 'express';
 import { AppConfigService } from '../config/app-config.service';
 import { LibraryService } from '../library/library.service';
@@ -24,7 +24,7 @@ export class StreamService {
     }
     this.library.backfillDurationIfMissing(trackId);
     const absolute = this.config.resolveUnderLibrary(track.relative_path);
-    if (!absolute || !existsSync(absolute)) {
+    if (!absolute) {
       throw new NotFoundException('Audio file is missing from the library');
     }
 
@@ -33,16 +33,25 @@ export class StreamService {
   }
 
   streamFile(absolutePath: string, mime: string, req: Request, res: Response): void {
-    const stat = statSync(absolutePath);
+    let stat: Stats;
+    try {
+      stat = statSync(absolutePath);
+    } catch {
+      // Also covers a file the filesystem reports as pending deletion, which an SMB
+      // share does while another handle is still open.
+      throw new NotFoundException('Audio file is missing from the library');
+    }
     const range = req.headers.range;
 
     res.setHeader('Content-Type', mime);
     res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.setHeader('Last-Modified', new Date(stat.mtimeMs).toUTCString());
+    res.setHeader('ETag', `"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`);
 
     if (!range) {
       res.setHeader('Content-Length', stat.size);
-      createReadStream(absolutePath).pipe(res);
+      this.pipe(createReadStream(absolutePath), res);
       return;
     }
 
@@ -61,6 +70,19 @@ export class StreamService {
     res.status(206);
     res.setHeader('Content-Range', `bytes ${start}-${chunkEnd}/${stat.size}`);
     res.setHeader('Content-Length', chunkEnd - start + 1);
-    createReadStream(absolutePath, { start, end: chunkEnd }).pipe(res);
+    this.pipe(createReadStream(absolutePath, { start, end: chunkEnd }), res);
+  }
+
+  /**
+   * A read error mid-response cannot be turned into a status code any more, so the
+   * connection is dropped instead of letting the error surface unhandled.
+   */
+  private pipe(source: ReturnType<typeof createReadStream>, res: Response): void {
+    source.on('error', () => {
+      source.destroy();
+      res.destroy();
+    });
+    res.on('close', () => source.destroy());
+    source.pipe(res);
   }
 }

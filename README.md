@@ -26,6 +26,26 @@ npm start
 
 Then open `http://<host>:3000`.
 
+## WSL network library (`/mnt/a`)
+
+If `MUSIC_LIBRARY_PATH` points at a Windows mapped drive mounted in WSL (e.g. `A:\` → `\\192.168.50.1\Audio` at `/mnt/a`), tag writes never rename or unlink the audio file. **drvfs** on mapped network drives rejects rename-over-existing while another handle is open, and the failed replace can leave the destination pending deletion, which loses the file once the last handle closes.
+
+Instead, rating and metadata writes take a verified sibling backup (`<name>.karaokej-bak`), overwrite the file in place, check the result, and only then drop the backup. A backup left behind after a crash holds the original content. Tag edits are also kept size-preserving where possible (padded ID3v2 tag area, FLAC padding block, fixed-length `OpusTags` packet), so the audio frames never move and a track can be re-rated while it is playing without interrupting playback.
+
+For best compatibility long term, mount the SMB share directly with CIFS instead of drvfs:
+
+```bash
+sudo apt-get install -y cifs-utils
+sudo mkdir -p /etc/karaokej
+sudo install -m 600 /dev/stdin /etc/karaokej/audio.credentials <<'EOF'
+username=YOUR_USER
+password=YOUR_PASSWORD
+EOF
+sudo install -m 755 scripts/mount-windows-audio.sh /usr/local/sbin/mount-windows-audio.sh
+```
+
+The script prefers CIFS when `/etc/karaokej/audio.credentials` exists, otherwise falls back to `A:\` via drvfs. An active `/etc/fstab` line for `A:\` is intentionally commented out because mapped drives are not visible at WSL boot; use `[boot] command=` in `/etc/wsl.conf` instead.
+
 ## Access from other devices (WSL2)
 
 Vite and the API already listen on all interfaces (`0.0.0.0`). In dev, the web app proxies `/api` and `/ws` to the API inside WSL, so other devices only need **port 5173**.

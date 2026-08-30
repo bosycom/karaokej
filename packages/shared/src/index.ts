@@ -31,6 +31,11 @@ export interface TrackDto {
   genres: string[];
   /** pending = path-only metadata; ready = tags parsed from file headers */
   metadataStatus: MetadataStatus;
+  /**
+   * Changes when a tag write moved the audio frames, which invalidates cached byte
+   * ranges. Used to version the audio URL so the player reloads only then.
+   */
+  audioVersion: number;
   /** Stem separation state; null = never requested / no row in karaoke_stems. */
   karaokeStemStatus: AiProcessingStatus | null;
 }
