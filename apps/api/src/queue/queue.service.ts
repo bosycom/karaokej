@@ -18,12 +18,16 @@ export class QueueService {
   add(
     trackId: number,
     placement: 'end' | 'after_current' = 'end',
+    beforeId?: number,
   ): QueueItemDto[] {
     const track = this.db.raw
       .prepare(`SELECT id FROM tracks WHERE id = ? AND available = 1`)
       .get(trackId) as { id: number } | undefined;
     if (!track) {
       throw new NotFoundException('Track not found');
+    }
+    if (beforeId != null) {
+      return this.insertTrackBefore(trackId, beforeId);
     }
     if (placement === 'after_current') {
       return this.insertTrackAfterCurrent(trackId);
@@ -125,6 +129,29 @@ export class QueueService {
     if (startPlaying || !this.hasCurrentQueueItem()) {
       this.selectFirstQueueItem(startPlaying ? 'playing' : 'paused');
     }
+    this.session.broadcast();
+    return this.list();
+  }
+
+  private insertTrackBefore(trackId: number, beforeId: number): QueueItemDto[] {
+    const before = this.db.raw
+      .prepare(`SELECT id, position FROM queue_items WHERE id = ?`)
+      .get(beforeId) as { id: number; position: number } | undefined;
+    if (!before) {
+      return this.insertTracks([trackId], false);
+    }
+    const tx = this.db.raw.transaction(() => {
+      this.db.raw
+        .prepare(`UPDATE queue_items SET position = position + 1 WHERE position >= ?`)
+        .run(before.position);
+      this.db.raw
+        .prepare(
+          `INSERT INTO queue_items (track_id, position, added_at) VALUES (?, ?, ?)`,
+        )
+        .run(trackId, before.position, Date.now());
+    });
+    tx();
+    this.reindex();
     this.session.broadcast();
     return this.list();
   }

@@ -21,12 +21,19 @@ export class QueueController {
   }
 
   @Post()
-  add(@Body() body: { trackId?: number; placement?: 'end' | 'after_current' }) {
+  add(
+    @Body()
+    body: { trackId?: number; placement?: 'end' | 'after_current'; beforeId?: number },
+  ) {
     if (!body?.trackId) {
       return this.queue.list();
     }
+    const beforeId =
+      body.beforeId != null && Number.isFinite(Number(body.beforeId))
+        ? Number(body.beforeId)
+        : undefined;
     const placement = body.placement === 'after_current' ? 'after_current' : 'end';
-    return this.queue.add(Number(body.trackId), placement);
+    return this.queue.add(Number(body.trackId), placement, beforeId);
   }
 
   @Patch('reorder')

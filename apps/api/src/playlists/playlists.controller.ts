@@ -50,12 +50,16 @@ export class PlaylistsController {
   @Post(':id/items')
   addItem(
     @Param('id', ParseIntPipe) id: number,
-    @Body() body: { trackId?: number },
+    @Body() body: { trackId?: number; beforeItemId?: number },
   ) {
     if (!body?.trackId) {
       throw new BadRequestException('trackId is required');
     }
-    return this.playlists.addItem(id, Number(body.trackId));
+    const beforeItemId =
+      body.beforeItemId != null && Number.isFinite(Number(body.beforeItemId))
+        ? Number(body.beforeItemId)
+        : undefined;
+    return this.playlists.addItem(id, Number(body.trackId), beforeItemId);
   }
 
   @Delete(':id/items/:itemId')

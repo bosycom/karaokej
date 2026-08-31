@@ -12,17 +12,22 @@ import {
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
-import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
 import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
-import { FiMenu, FiShuffle, FiTrash2 } from 'react-icons/fi';
+import { FiShuffle, FiTrash2 } from 'react-icons/fi';
 import { PlaylistDetailDto, PlaylistItemDto, PlaylistSummaryDto, QueueItemDto, TrackDto } from '@karaokej/shared';
 import { api } from '../api';
 import {
-  isPlaylistDropTarget,
   isQueueDropTarget,
   parseDragId,
+  playlistIdForAccept,
   QUEUE_DROPPABLE,
 } from '../dnd/dragIds';
+import {
+  pointerInsertsBefore,
+  pointerYFromDrag,
+  resolveCrossListDropLine,
+  type DropLine,
+} from '../dnd/dropInsert';
 import { workspaceCollision } from '../dnd/workspaceCollision';
 import { formatDuration, formatTrackSubtitle } from '../format';
 import { trackLabel } from '../session/SessionProvider';
@@ -80,6 +85,8 @@ export function WorkspaceDnd({
   const [active, setActive] = useState<ActiveDrag | null>(null);
   const [dropActive, setDropActive] = useState(false);
   const [dropActivePlaylistId, setDropActivePlaylistId] = useState<number | null>(null);
+  const [dropLine, setDropLine] = useState<DropLine | null>(null);
+  const dropLineRef = useRef<DropLine | null>(null);
   const dragging = useRef(false);
   const draggingPlaylist = useRef(false);
   const serverQueueRef = useRef(queue);
@@ -131,21 +138,60 @@ export function WorkspaceDnd({
     }
   };
 
+  const setLine = (next: DropLine | null) => {
+    dropLineRef.current = next;
+    setDropLine(next);
+  };
+
   const onDragOver = (event: DragOverEvent) => {
-    const draggingTrack = parseDragId(event.active.id)?.kind === 'track';
-    if (!draggingTrack || !event.over) {
+    const kind = parseDragId(event.active.id)?.kind;
+    const sameListReorder =
+      (kind === 'queue' && parseDragId(event.over?.id ?? '')?.kind === 'queue') ||
+      (kind === 'playlist-item' &&
+        parseDragId(event.over?.id ?? '')?.kind === 'playlist-item');
+    const canDropOnPlaylist = kind === 'track' || kind === 'queue';
+    const canDropOnQueue = kind === 'track' || kind === 'playlist-item';
+    if (!event.over || sameListReorder) {
       setDropActive(false);
       setDropActivePlaylistId(null);
+      setLine(null);
       return;
     }
-    if (isPlaylistDropTarget(event.over.id)) {
-      const parsed = parseDragId(event.over.id);
-      setDropActive(false);
-      setDropActivePlaylistId(parsed?.kind === 'playlist' ? parsed.id : null);
+    const pointerY = pointerYFromDrag(event);
+    const insertBefore =
+      pointerY != null
+        ? pointerInsertsBefore(event.over.rect.top, event.over.rect.height, pointerY)
+        : false;
+    const nextLine = resolveCrossListDropLine(
+      event.over.id,
+      insertBefore,
+      items.map((item) => item.id),
+      playlistItems.map((item) => item.id),
+    );
+
+    if (canDropOnPlaylist) {
+      const playlistId = playlistIdForAccept(event.over.id, selectedPlaylistId);
+      if (playlistId != null) {
+        const overKind = parseDragId(event.over.id)?.kind;
+        setDropActive(false);
+        setDropActivePlaylistId(overKind === 'playlist-item' ? null : playlistId);
+        const showItemLine =
+          overKind === 'playlist-item' ||
+          (overKind === 'playlist' && playlistId === selectedPlaylistId);
+        setLine(showItemLine && nextLine?.list === 'playlist' ? nextLine : null);
+        return;
+      }
+    }
+    if (canDropOnQueue && isQueueDropTarget(event.over.id)) {
+      const overItem = parseDragId(event.over.id)?.kind === 'queue';
+      setDropActive(!overItem);
+      setDropActivePlaylistId(null);
+      setLine(nextLine?.list === 'queue' ? nextLine : null);
       return;
     }
-    setDropActive(Boolean(isQueueDropTarget(event.over.id)));
+    setDropActive(false);
     setDropActivePlaylistId(null);
+    setLine(null);
   };
 
   const finishDrag = () => {
@@ -154,30 +200,38 @@ export function WorkspaceDnd({
     setActive(null);
     setDropActive(false);
     setDropActivePlaylistId(null);
+    setLine(null);
   };
 
   const onDragEnd = (event: DragEndEvent) => {
     const { active: dragged, over } = event;
     const from = parseDragId(dragged.id);
     const to = over ? parseDragId(over.id) : null;
+    const insertLine = dropLineRef.current;
     finishDrag();
 
     if (!from || !to) {
       return;
     }
 
-    if (from.kind === 'track' && to.kind === 'playlist') {
-      void api.addToPlaylist(to.id, from.id).then((detail) => {
-        if (selectedPlaylistId === to.id) {
-          onPlaylistChanged(detail);
-        }
-        onPlaylistsRefresh();
-      });
-      return;
+    if (from.kind === 'track') {
+      const playlistId = over ? playlistIdForAccept(over.id, selectedPlaylistId) : null;
+      if (playlistId != null) {
+        const beforeItemId =
+          insertLine?.list === 'playlist' ? insertLine.beforeId : null;
+        void api.addToPlaylist(playlistId, from.id, beforeItemId).then((detail) => {
+          if (selectedPlaylistId === playlistId) {
+            onPlaylistChanged(detail);
+          }
+          onPlaylistsRefresh();
+        });
+        return;
+      }
     }
 
     if (from.kind === 'track' && (to.kind === 'queue' || to.kind === 'drop')) {
-      void api.addToQueue(from.id);
+      const beforeId = insertLine?.list === 'queue' ? insertLine.beforeId : null;
+      void api.addToQueue(from.id, 'end', beforeId);
       return;
     }
 
@@ -224,6 +278,39 @@ export function WorkspaceDnd({
         .finally(() => {
           draggingPlaylist.current = false;
         });
+      return;
+    }
+
+    if (from.kind === 'playlist-item' && (to.kind === 'queue' || to.kind === 'drop')) {
+      const item =
+        playlistItems.find((entry) => entry.id === from.id) ??
+        serverPlaylistItemsRef.current.find((entry) => entry.id === from.id);
+      if (item?.available) {
+        const beforeId = insertLine?.list === 'queue' ? insertLine.beforeId : null;
+        void api.addToQueue(item.track.id, 'end', beforeId);
+      }
+      return;
+    }
+
+    if (from.kind === 'queue' && over) {
+      const playlistId = playlistIdForAccept(over.id, selectedPlaylistId);
+      if (!playlistId) {
+        return;
+      }
+      const item =
+        items.find((entry) => entry.id === from.id) ??
+        serverQueueRef.current.find((entry) => entry.id === from.id);
+      if (!item) {
+        return;
+      }
+      const beforeItemId =
+        insertLine?.list === 'playlist' ? insertLine.beforeId : null;
+      void api.addToPlaylist(playlistId, item.track.id, beforeItemId).then((detail) => {
+        if (selectedPlaylistId === playlistId) {
+          onPlaylistChanged(detail);
+        }
+        onPlaylistsRefresh();
+      });
     }
   };
 
@@ -236,11 +323,6 @@ export function WorkspaceDnd({
     <DndContext
       sensors={sensors}
       collisionDetection={workspaceCollision}
-      modifiers={
-        active?.kind === 'queue' || active?.kind === 'playlist-item'
-          ? [restrictToVerticalAxis]
-          : undefined
-      }
       onDragStart={onDragStart}
       onDragOver={onDragOver}
       onDragEnd={onDragEnd}
@@ -253,6 +335,7 @@ export function WorkspaceDnd({
           selectedId={selectedPlaylistId}
           detail={detailForPane}
           dropActivePlaylistId={dropActivePlaylistId}
+          dropLine={dropLine?.list === 'playlist' ? dropLine : null}
           onSelect={onSelectPlaylist}
           onCreate={onCreatePlaylist}
           onRename={onRenamePlaylist}
@@ -265,6 +348,7 @@ export function WorkspaceDnd({
           items={items}
           currentQueueItemId={currentQueueItemId}
           dropActive={dropActive}
+          dropLine={dropLine?.list === 'queue' ? dropLine : null}
           onClearQueue={onClearQueue}
           onShuffleQueue={onShuffleQueue}
           onShowCover={onShowCover}
@@ -273,17 +357,11 @@ export function WorkspaceDnd({
       <DragOverlay>
         {active?.kind === 'queue' ? (
           <div className={`queue-overlay${active.item.id === currentQueueItemId ? ' current' : ''}`}>
-            <span className="queue-handle" aria-hidden>
-              <FiMenu />
-            </span>
             <span className="queue-title">{trackLabel(active.item.track)}</span>
           </div>
         ) : null}
         {active?.kind === 'playlist-item' ? (
           <div className={`queue-overlay${active.item.available ? '' : ' unavailable'}`}>
-            <span className="queue-handle" aria-hidden>
-              <FiMenu />
-            </span>
             <span className="queue-title">{trackLabel(active.item.track)}</span>
           </div>
         ) : null}
@@ -319,6 +397,7 @@ function QueuePane({
   items,
   currentQueueItemId,
   dropActive,
+  dropLine,
   onClearQueue,
   onShuffleQueue,
   onShowCover,
@@ -326,6 +405,7 @@ function QueuePane({
   items: QueueItemDto[];
   currentQueueItemId: number | null;
   dropActive: boolean;
+  dropLine: DropLine | null;
   onClearQueue: () => void;
   onShuffleQueue: () => void;
   onShowCover?: (track: TrackDto) => void;
@@ -366,17 +446,20 @@ function QueuePane({
           </button>
         </div>
       </div>
-      {items.length === 0 ? (
-        <p className="empty">
-          {dropActive ? 'Drop to add to the queue' : 'Queue is empty. Add a song from the library.'}
-        </p>
-      ) : (
-        <QueueList
-          items={items}
-          currentQueueItemId={currentQueueItemId}
-          onShowCover={onShowCover}
-        />
-      )}
+      <div className="queue-items-scroll">
+        {items.length === 0 ? (
+          <p className="empty">
+            {dropActive ? 'Drop to add to the queue' : 'Queue is empty. Add a song from the library or a playlist.'}
+          </p>
+        ) : (
+          <QueueList
+            items={items}
+            currentQueueItemId={currentQueueItemId}
+            dropLine={dropLine}
+            onShowCover={onShowCover}
+          />
+        )}
+      </div>
     </aside>
   );
 }

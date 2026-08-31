@@ -144,10 +144,18 @@ export const api = {
   deleteTrack: (trackId: number) =>
     request<void>(`/api/tracks/${trackId}`, { method: 'DELETE' }),
   lyrics: (trackId: number) => request<LyricsDto>(`/api/tracks/${trackId}/lyrics`),
-  addToQueue: (trackId: number, placement: 'end' | 'after_current' = 'end') =>
+  addToQueue: (
+    trackId: number,
+    placement: 'end' | 'after_current' = 'end',
+    beforeId?: number | null,
+  ) =>
     request<QueueItemDto[]>('/api/queue', {
       method: 'POST',
-      body: JSON.stringify({ trackId, placement }),
+      body: JSON.stringify({
+        trackId,
+        placement,
+        ...(beforeId != null ? { beforeId } : {}),
+      }),
     }),
   playTrackNow: async (trackId: number) => {
     const queue = await request<QueueItemDto[]>('/api/queue', {
@@ -233,10 +241,17 @@ export const api = {
     }),
   deletePlaylist: (id: number) =>
     request<void>(`/api/playlists/${id}`, { method: 'DELETE' }),
-  addToPlaylist: (playlistId: number, trackId: number) =>
+  addToPlaylist: (
+    playlistId: number,
+    trackId: number,
+    beforeItemId?: number | null,
+  ) =>
     request<PlaylistDetailDto>(`/api/playlists/${playlistId}/items`, {
       method: 'POST',
-      body: JSON.stringify({ trackId }),
+      body: JSON.stringify({
+        trackId,
+        ...(beforeItemId != null ? { beforeItemId } : {}),
+      }),
     }),
   removeFromPlaylist: (playlistId: number, itemId: number) =>
     request<PlaylistDetailDto>(`/api/playlists/${playlistId}/items/${itemId}`, {

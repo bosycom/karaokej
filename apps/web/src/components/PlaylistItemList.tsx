@@ -1,29 +1,42 @@
 import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { FiMenu, FiX } from 'react-icons/fi';
+import { FiX } from 'react-icons/fi';
 import { PlaylistItemDto } from '@karaokej/shared';
 import { playlistItemDragId } from '../dnd/dragIds';
+import { dropLineClass, type DropLine } from '../dnd/dropInsert';
 import { formatDuration } from '../format';
 import { CoverArt } from './CoverArt';
 
 interface PlaylistItemListProps {
   items: PlaylistItemDto[];
   onRemove: (itemId: number) => void;
+  dropLine?: DropLine | null;
   onShowCover?: (track: PlaylistItemDto['track']) => void;
 }
 
-export function PlaylistItemList({ items, onRemove, onShowCover }: PlaylistItemListProps) {
+export function PlaylistItemList({
+  items,
+  onRemove,
+  dropLine = null,
+  onShowCover,
+}: PlaylistItemListProps) {
   return (
     <SortableContext
       items={items.map((item) => playlistItemDragId(item.id))}
       strategy={verticalListSortingStrategy}
     >
       <ul className="queue-list playlist-item-list">
-        {items.map((item) => (
+        {items.map((item, index) => (
           <SortablePlaylistItem
             key={item.id}
             item={item}
             onRemove={onRemove}
+            dropLineClassName={dropLineClass(
+              item.id,
+              index === items.length - 1,
+              dropLine,
+              'playlist',
+            )}
             onShowCover={onShowCover}
           />
         ))}
@@ -35,10 +48,12 @@ export function PlaylistItemList({ items, onRemove, onShowCover }: PlaylistItemL
 function SortablePlaylistItem({
   item,
   onRemove,
+  dropLineClassName,
   onShowCover,
 }: {
   item: PlaylistItemDto;
   onRemove: (itemId: number) => void;
+  dropLineClassName: string;
   onShowCover?: (track: PlaylistItemDto['track']) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -55,18 +70,10 @@ function SortablePlaylistItem({
     <li
       ref={setNodeRef}
       style={style}
-      className={`${isDragging ? 'dragging' : ''}${item.available ? '' : ' unavailable'}`}
+      className={`${isDragging ? 'dragging' : ''}${item.available ? '' : ' unavailable'}${dropLineClassName ? ` ${dropLineClassName}` : ''}`}
+      title={item.available ? 'Drag to reorder or add to the queue' : undefined}
+      {...(item.available ? { ...attributes, ...listeners } : {})}
     >
-      <button
-        type="button"
-        className="queue-handle"
-        aria-label="Reorder playlist item"
-        disabled={!item.available}
-        {...attributes}
-        {...listeners}
-      >
-        <FiMenu aria-hidden />
-      </button>
       <CoverArt
         track={item.track}
         size={32}
@@ -85,6 +92,7 @@ function SortablePlaylistItem({
         <button
           type="button"
           className="icon-btn"
+          onPointerDown={(event) => event.stopPropagation()}
           onClick={() => onRemove(item.id)}
           title="Remove from playlist"
           aria-label="Remove from playlist"

@@ -1,8 +1,9 @@
-import { FormEvent, ReactNode, useMemo, useState } from 'react';
+import { FormEvent, useMemo, useState } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { FiEdit2, FiPlay, FiPlus, FiTrash2 } from 'react-icons/fi';
 import { PlaylistDetailDto, PlaylistSummaryDto, TrackDto } from '@karaokej/shared';
-import { playlistDropId } from '../dnd/dragIds';
+import { playlistDetailDropId, playlistDropId } from '../dnd/dragIds';
+import type { DropLine } from '../dnd/dropInsert';
 import { PlaylistItemList } from './PlaylistItemList';
 
 interface PlaylistPaneProps {
@@ -10,6 +11,7 @@ interface PlaylistPaneProps {
   selectedId: number | null;
   detail: PlaylistDetailDto | null;
   dropActivePlaylistId: number | null;
+  dropLine?: DropLine | null;
   onSelect: (id: number) => void;
   onCreate: (name: string) => void;
   onRename: (id: number, name: string) => void;
@@ -24,6 +26,7 @@ export function PlaylistPane({
   selectedId,
   detail,
   dropActivePlaylistId,
+  dropLine = null,
   onSelect,
   onCreate,
   onRename,
@@ -118,101 +121,109 @@ export function PlaylistPane({
         </form>
       )}
 
-      {summaries.length === 0 ? (
-        <p className="empty">Create a playlist, then drag songs from the library onto its name.</p>
-      ) : filteredSummaries.length === 0 ? (
-        <p className="empty">No playlists match your search.</p>
-      ) : (
-        <ul className="playlist-name-list">
-          {filteredSummaries.map((playlist) => (
-            <PlaylistNameRow
-              key={playlist.id}
-              playlist={playlist}
-              selected={playlist.id === selectedId}
-              dropActive={dropActivePlaylistId === playlist.id}
-              editing={editingId === playlist.id && playlist.id !== selectedId}
-              editName={editName}
-              onSelect={() => onSelect(playlist.id)}
-              onStartRename={() => startRename(playlist)}
-              onEditNameChange={setEditName}
-              onCommitRename={() => commitRename(playlist.id)}
-              onCancelRename={() => setEditingId(null)}
-            />
-          ))}
-        </ul>
-      )}
+      <div className="playlist-names-scroll">
+        {summaries.length === 0 ? (
+          <p className="empty">Create a playlist, then drag songs from the library onto its name.</p>
+        ) : filteredSummaries.length === 0 ? (
+          <p className="empty">No playlists match your search.</p>
+        ) : (
+          <ul className="playlist-name-list">
+            {filteredSummaries.map((playlist) => (
+              <PlaylistNameRow
+                key={playlist.id}
+                playlist={playlist}
+                selected={playlist.id === selectedId}
+                dropActive={dropActivePlaylistId === playlist.id}
+                editing={editingId === playlist.id && playlist.id !== selectedId}
+                editName={editName}
+                onSelect={() => onSelect(playlist.id)}
+                onStartRename={() => startRename(playlist)}
+                onEditNameChange={setEditName}
+                onCommitRename={() => commitRename(playlist.id)}
+                onCancelRename={() => setEditingId(null)}
+              />
+            ))}
+          </ul>
+        )}
+      </div>
 
       {selected && detail && (
         <section className="playlist-detail">
-          <div className="playlist-detail-header">
-            <PlaylistDropTarget
-              playlistId={selected.id}
-              dropActive={dropActivePlaylistId === selected.id}
-              className="playlist-detail-title"
-            >
-              {editingId === selected.id ? (
-                <input
-                  value={editName}
-                  onChange={(event) => setEditName(event.target.value)}
-                  onBlur={() => commitRename(selected.id)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') {
-                      commitRename(selected.id);
-                    }
-                    if (event.key === 'Escape') {
-                      setEditingId(null);
-                    }
-                  }}
-                  autoFocus
-                />
-              ) : (
-                <span className="playlist-name-button selected-name">{selected.name}</span>
-              )}
-            </PlaylistDropTarget>
-            <div className="playlist-detail-actions">
-              <button
-                type="button"
-                className="icon-btn"
-                title="Rename playlist"
-                aria-label="Rename playlist"
-                onClick={() => startRename(selected)}
-              >
-                <FiEdit2 aria-hidden />
-              </button>
-              <button
-                type="button"
-                className="icon-btn"
-                title="Play playlist"
-                aria-label="Play playlist"
-                onClick={() => onPlay(selected.id)}
-              >
-                <FiPlay aria-hidden />
-              </button>
-              <button
-                type="button"
-                className="icon-btn"
-                title="Delete playlist"
-                aria-label="Delete playlist"
-                onClick={() => onDelete(selected.id)}
-              >
-                <FiTrash2 aria-hidden />
-              </button>
+          <PlaylistDropTarget
+            playlistId={selected.id}
+            dropActive={dropActivePlaylistId === selected.id}
+            className="playlist-detail-drop"
+            variant="detail"
+          >
+            <div className="playlist-detail-header">
+              <div className="playlist-detail-title">
+                {editingId === selected.id ? (
+                  <input
+                    value={editName}
+                    onChange={(event) => setEditName(event.target.value)}
+                    onBlur={() => commitRename(selected.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        commitRename(selected.id);
+                      }
+                      if (event.key === 'Escape') {
+                        setEditingId(null);
+                      }
+                    }}
+                    autoFocus
+                  />
+                ) : (
+                  <span className="playlist-name-button selected-name">{selected.name}</span>
+                )}
+              </div>
+              <div className="playlist-detail-actions">
+                <button
+                  type="button"
+                  className="icon-btn"
+                  title="Rename playlist"
+                  aria-label="Rename playlist"
+                  onClick={() => startRename(selected)}
+                >
+                  <FiEdit2 aria-hidden />
+                </button>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  title="Play playlist"
+                  aria-label="Play playlist"
+                  onClick={() => onPlay(selected.id)}
+                >
+                  <FiPlay aria-hidden />
+                </button>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  title="Delete playlist"
+                  aria-label="Delete playlist"
+                  onClick={() => onDelete(selected.id)}
+                >
+                  <FiTrash2 aria-hidden />
+                </button>
+              </div>
             </div>
-          </div>
 
-          {detail.items.length === 0 ? (
-            <p className="empty">
-              {dropActivePlaylistId === selected.id
-                ? 'Drop to add to this playlist'
-                : 'Drag songs here from the library.'}
-            </p>
-          ) : (
-            <PlaylistItemList
-              items={detail.items}
-              onRemove={onRemoveItem}
-              onShowCover={onShowCover}
-            />
-          )}
+            <div className="playlist-items-scroll">
+              {detail.items.length === 0 ? (
+                <p className="empty">
+                  {dropActivePlaylistId === selected.id
+                    ? 'Drop to add to this playlist'
+                    : 'Drag songs here from the library or queue.'}
+                </p>
+              ) : (
+                <PlaylistItemList
+                  items={detail.items}
+                  onRemove={onRemoveItem}
+                  dropLine={dropLine}
+                  onShowCover={onShowCover}
+                />
+              )}
+            </div>
+          </PlaylistDropTarget>
         </section>
       )}
     </aside>
@@ -285,14 +296,16 @@ function PlaylistDropTarget({
   dropActive,
   className,
   children,
+  variant = 'name',
 }: {
   playlistId: number;
   dropActive: boolean;
   className?: string;
   children: React.ReactNode;
+  variant?: 'name' | 'detail';
 }) {
   const { setNodeRef } = useDroppable({
-    id: playlistDropId(playlistId),
+    id: variant === 'detail' ? playlistDetailDropId(playlistId) : playlistDropId(playlistId),
     data: { kind: 'playlist', id: playlistId },
   });
 

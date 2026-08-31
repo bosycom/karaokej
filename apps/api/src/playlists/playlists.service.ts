@@ -91,7 +91,11 @@ export class PlaylistsService {
     this.db.raw.prepare(`DELETE FROM playlists WHERE id = ?`).run(id);
   }
 
-  addItem(playlistId: number, trackId: number): PlaylistDetailDto {
+  addItem(
+    playlistId: number,
+    trackId: number,
+    beforeItemId?: number,
+  ): PlaylistDetailDto {
     this.getPlaylistRow(playlistId);
     const track = this.db.raw
       .prepare(`SELECT id FROM tracks WHERE id = ?`)
@@ -99,18 +103,43 @@ export class PlaylistsService {
     if (!track) {
       throw new NotFoundException('Track not found');
     }
-    const max = this.db.raw
-      .prepare(
-        `SELECT COALESCE(MAX(position), 0) AS n FROM playlist_items WHERE playlist_id = ?`,
-      )
-      .get(playlistId) as { n: number };
     const now = Date.now();
-    this.db.raw
-      .prepare(
-        `INSERT INTO playlist_items (playlist_id, track_id, position, added_at)
-         VALUES (?, ?, ?, ?)`,
-      )
-      .run(playlistId, trackId, max.n + 1, now);
+    const before =
+      beforeItemId == null
+        ? undefined
+        : (this.db.raw
+            .prepare(
+              `SELECT id, position FROM playlist_items WHERE id = ? AND playlist_id = ?`,
+            )
+            .get(beforeItemId, playlistId) as
+            | { id: number; position: number }
+            | undefined);
+    if (before) {
+      this.db.raw
+        .prepare(
+          `UPDATE playlist_items SET position = position + 1
+           WHERE playlist_id = ? AND position >= ?`,
+        )
+        .run(playlistId, before.position);
+      this.db.raw
+        .prepare(
+          `INSERT INTO playlist_items (playlist_id, track_id, position, added_at)
+           VALUES (?, ?, ?, ?)`,
+        )
+        .run(playlistId, trackId, before.position, now);
+    } else {
+      const max = this.db.raw
+        .prepare(
+          `SELECT COALESCE(MAX(position), 0) AS n FROM playlist_items WHERE playlist_id = ?`,
+        )
+        .get(playlistId) as { n: number };
+      this.db.raw
+        .prepare(
+          `INSERT INTO playlist_items (playlist_id, track_id, position, added_at)
+           VALUES (?, ?, ?, ?)`,
+        )
+        .run(playlistId, trackId, max.n + 1, now);
+    }
     this.touchPlaylist(playlistId, now);
     return this.get(playlistId);
   }

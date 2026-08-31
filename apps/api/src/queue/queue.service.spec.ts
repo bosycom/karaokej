@@ -254,4 +254,33 @@ describe('QueueService.add placement', () => {
 
     expect(afterTrackIds).toEqual([trackA, trackB, trackNew]);
   });
+
+  it('inserts before a specific queue item when beforeId is set', () => {
+    queue.add(trackA);
+    queue.add(trackB);
+    queue.add(trackC);
+    const before = queue.list();
+
+    const after = queue.add(trackNew, 'end', before[1]!.id);
+
+    expect(after.map((item) => item.track.id)).toEqual([
+      trackA,
+      trackNew,
+      trackB,
+      trackC,
+    ]);
+  });
+
+  it('appends when beforeId does not match a queue item', () => {
+    queue.add(trackA);
+    queue.add(trackB);
+
+    const after = queue.add(trackNew, 'end', 999_999);
+
+    expect(after.map((item) => item.track.id)).toEqual([
+      trackA,
+      trackB,
+      trackNew,
+    ]);
+  });
 });

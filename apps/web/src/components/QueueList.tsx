@@ -1,10 +1,11 @@
 import { useSortable } from '@dnd-kit/sortable';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { FiMenu, FiX } from 'react-icons/fi';
+import { FiX } from 'react-icons/fi';
 import { QueueItemDto } from '@karaokej/shared';
 import { api } from '../api';
 import { queueDragId } from '../dnd/dragIds';
+import { dropLineClass, type DropLine } from '../dnd/dropInsert';
 import { queueSeparationDisplay } from '../queue/queueSeparationDisplay';
 import { trackLabel, useSession } from '../session/SessionProvider';
 import { CircularProgress } from './CircularProgress';
@@ -13,21 +14,33 @@ import { CoverArt } from './CoverArt';
 interface QueueListProps {
   items: QueueItemDto[];
   currentQueueItemId: number | null;
+  dropLine?: DropLine | null;
   onShowCover?: (track: QueueItemDto['track']) => void;
 }
 
-export function QueueList({ items, currentQueueItemId, onShowCover }: QueueListProps) {
+export function QueueList({
+  items,
+  currentQueueItemId,
+  dropLine = null,
+  onShowCover,
+}: QueueListProps) {
   return (
     <SortableContext
       items={items.map((item) => queueDragId(item.id))}
       strategy={verticalListSortingStrategy}
     >
       <ol className="queue-list">
-        {items.map((item) => (
+        {items.map((item, index) => (
           <SortableQueueItem
             key={item.id}
             item={item}
             current={item.id === currentQueueItemId}
+            dropLineClassName={dropLineClass(
+              item.id,
+              index === items.length - 1,
+              dropLine,
+              'queue',
+            )}
             onShowCover={onShowCover}
           />
         ))}
@@ -39,10 +52,12 @@ export function QueueList({ items, currentQueueItemId, onShowCover }: QueueListP
 function SortableQueueItem({
   item,
   current,
+  dropLineClassName,
   onShowCover,
 }: {
   item: QueueItemDto;
   current: boolean;
+  dropLineClassName: string;
   onShowCover?: (track: QueueItemDto['track']) => void;
 }) {
   const { state } = useSession();
@@ -59,18 +74,11 @@ function SortableQueueItem({
         transform: CSS.Transform.toString(transform),
         transition,
       }}
-      className={`${current ? 'current' : ''}${isDragging ? ' dragging' : ''}`.trim()}
+      className={`${current ? 'current' : ''}${isDragging ? ' dragging' : ''}${dropLineClassName ? ` ${dropLineClassName}` : ''}`.trim()}
+      title="Drag to reorder or add to a playlist"
+      {...attributes}
+      {...listeners}
     >
-      <button
-        type="button"
-        className="queue-handle"
-        title="Drag to reorder"
-        aria-label="Drag to reorder"
-        {...attributes}
-        {...listeners}
-      >
-        <FiMenu aria-hidden />
-      </button>
       <CoverArt
         track={item.track}
         size={32}
@@ -89,6 +97,7 @@ function SortableQueueItem({
         <button
           type="button"
           className="icon-btn"
+          onPointerDown={(event) => event.stopPropagation()}
           onClick={() => void api.removeFromQueue(item.id)}
           title="Remove"
           aria-label="Remove"

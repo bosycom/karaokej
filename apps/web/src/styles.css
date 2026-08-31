@@ -93,12 +93,17 @@ input[type='text'],
 }
 
 .app-shell {
-  min-height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
   display: grid;
   grid-template-rows: auto auto 1fr auto;
 }
 
 .app-shell.settings-shell {
+  height: auto;
+  min-height: 100dvh;
+  overflow: auto;
   grid-template-rows: auto 1fr auto;
 }
 
@@ -980,6 +985,8 @@ a.search-miss-btn:hover {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.8fr);
   min-height: 0;
+  height: 100%;
+  overflow: hidden;
 }
 
 .workspace-three {
@@ -989,8 +996,19 @@ a.search-miss-btn:hover {
 .library-pane,
 .queue-pane,
 .playlist-pane {
-  padding: 1rem 1.5rem 6rem;
+  min-height: 0;
+  padding: 1rem 1.5rem;
+}
+
+.library-pane {
   overflow: auto;
+}
+
+.queue-pane,
+.playlist-pane {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .playlist-pane {
@@ -1006,6 +1024,7 @@ a.search-miss-btn:hover {
   justify-content: space-between;
   gap: 0.75rem;
   margin-bottom: 0.75rem;
+  flex-shrink: 0;
 }
 
 .playlist-pane-toolbar h2,
@@ -1030,9 +1049,23 @@ a.search-miss-btn:hover {
   min-width: 0;
 }
 
+.playlist-names-scroll {
+  flex: 0 0 auto;
+  min-height: 7.5rem;
+  max-height: 30%;
+  overflow: auto;
+  margin-bottom: 0.75rem;
+}
+
+.playlist-pane:not(:has(.playlist-detail)) .playlist-names-scroll {
+  max-height: none;
+  flex: 1;
+  margin-bottom: 0;
+}
+
 .playlist-name-list {
   list-style: none;
-  margin: 0 0 1rem;
+  margin: 0;
   padding: 0;
 }
 
@@ -1084,14 +1117,32 @@ a.search-miss-btn:hover {
 }
 
 .playlist-detail {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   border-top: 1px solid var(--line);
   padding-top: 0.75rem;
 }
 
+.playlist-detail-drop {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.playlist-items-scroll,
+.queue-items-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
 .playlist-detail-header {
-  position: sticky;
-  top: 0;
-  z-index: 2;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1112,7 +1163,7 @@ a.search-miss-btn:hover {
   padding: 0.55rem 0.65rem;
 }
 
-.playlist-detail > .empty {
+.playlist-items-scroll > .empty {
   padding-inline: 0.65rem;
 }
 
@@ -1165,8 +1216,18 @@ a.search-miss-btn:hover {
   margin: 0;
 }
 
+.playlist-search,
+.playlist-create {
+  flex-shrink: 0;
+}
+
 .playlist-search {
   margin-bottom: 0.75rem;
+}
+
+.queue-items-scroll .queue-list,
+.playlist-items-scroll .queue-list {
+  margin: 0;
 }
 
 .track-list,
@@ -1233,34 +1294,54 @@ a.search-miss-btn:hover {
   min-width: 0;
 }
 
-.queue-handle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  padding: 0.3rem;
-  min-width: 1.8rem;
-  min-height: 1.8rem;
-  border: 0;
-  background: none;
-  color: var(--muted);
+.queue-list li {
+  position: relative;
   cursor: grab;
   touch-action: none;
-  border-radius: 0.4rem;
 }
 
-.queue-handle:hover:not(:disabled) {
-  color: var(--gold);
-  border-color: transparent;
+.queue-list li.drop-line-before::before,
+.queue-list li.drop-line-after::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--gold);
+  box-shadow: 0 0 0 1px var(--gold-deep);
+  border-radius: 1px;
+  pointer-events: none;
+  z-index: 3;
 }
 
-.queue-handle:active {
+.queue-list li.drop-line-before::before {
+  top: -1px;
+}
+
+.queue-list li.drop-line-after::after {
+  bottom: -1px;
+}
+
+.queue-list li:active {
   cursor: grabbing;
 }
 
-.queue-handle svg {
-  width: 1.15rem;
-  height: 1.15rem;
+.queue-list li.unavailable {
+  cursor: default;
+  touch-action: auto;
+}
+
+.queue-list li button,
+.queue-list li .cover-art-button {
+  cursor: pointer;
+}
+
+.queue-list li .queue-title {
+  cursor: grab;
+}
+
+.queue-list li:active .queue-title {
+  cursor: grabbing;
 }
 
 .queue-list li.dragging {
@@ -2281,6 +2362,7 @@ a.search-miss-btn:hover {
 @media (max-width: 1100px) {
   .workspace-three {
     grid-template-columns: 1fr 1fr;
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
     grid-template-areas:
       'library library'
       'playlists queue';
@@ -2301,13 +2383,28 @@ a.search-miss-btn:hover {
 }
 
 @media (max-width: 900px) {
+  .app-shell {
+    height: auto;
+    min-height: 100dvh;
+    overflow: auto;
+  }
+
   .workspace,
   .workspace-three {
+    height: auto;
+    overflow: visible;
     grid-template-columns: 1fr;
+    grid-template-rows: none;
     grid-template-areas:
       'library'
       'playlists'
       'queue';
+  }
+
+  .playlist-pane,
+  .queue-pane {
+    min-height: 20rem;
+    max-height: 70vh;
   }
 
   .workspace-three .library-pane,

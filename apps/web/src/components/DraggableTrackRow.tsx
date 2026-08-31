@@ -1,5 +1,5 @@
 import { useDraggable } from '@dnd-kit/core';
-import { FiEdit2, FiPlay, FiTag } from 'react-icons/fi';
+import { FiPlay, FiTag } from 'react-icons/fi';
 import { TrackDto } from '@karaokej/shared';
 import { api } from '../api';
 import { trackDragId } from '../dnd/dragIds';
@@ -119,18 +119,19 @@ export function DraggableTrackRow({
         >
           <FiPlay aria-hidden />
         </button>
-        <button
-          type="button"
-          className="icon-btn"
-          title={`Edit metadata for ${track.title}`}
-          aria-label={`Edit metadata for ${track.title}`}
-          onClick={() => onEditMetadata(track)}
-        >
-          <FiEdit2 aria-hidden />
-        </button>
         <IconMenu
           ariaLabel={`Actions for ${track.title}`}
           items={[
+            {
+              id: 'edit-metadata',
+              label: 'Edit metadata',
+              onSelect: () => onEditMetadata(track),
+            },
+            {
+              id: 'artist-bio',
+              label: 'Artist bio',
+              onSelect: () => onShowCover(track),
+            },
             {
               id: 'copy-file-path',
               label: 'Copy file path',

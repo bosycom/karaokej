@@ -12,6 +12,10 @@ export function playlistDropId(playlistId: number): string {
   return `playlist:${playlistId}`;
 }
 
+export function playlistDetailDropId(playlistId: number): string {
+  return `playlist-detail:${playlistId}`;
+}
+
 export function playlistItemDragId(itemId: number): string {
   return `playlist-item:${itemId}`;
 }
@@ -37,6 +41,9 @@ export function parseDragId(id: string | number): ParsedDragId | null {
   if (value.startsWith('playlist-item:')) {
     return { kind: 'playlist-item', id: Number(value.slice(14)) };
   }
+  if (value.startsWith('playlist-detail:')) {
+    return { kind: 'playlist', id: Number(value.slice(16)) };
+  }
   if (value.startsWith('playlist:')) {
     return { kind: 'playlist', id: Number(value.slice(9)) };
   }
@@ -50,4 +57,22 @@ export function isQueueDropTarget(id: string | number): boolean {
 
 export function isPlaylistDropTarget(id: string | number): boolean {
   return parseDragId(id)?.kind === 'playlist';
+}
+
+export function isPlaylistItemTarget(id: string | number): boolean {
+  return parseDragId(id)?.kind === 'playlist-item';
+}
+
+export function playlistIdForAccept(
+  id: string | number,
+  selectedPlaylistId: number | null,
+): number | null {
+  const parsed = parseDragId(id);
+  if (parsed?.kind === 'playlist') {
+    return parsed.id;
+  }
+  if (parsed?.kind === 'playlist-item') {
+    return selectedPlaylistId;
+  }
+  return null;
 }

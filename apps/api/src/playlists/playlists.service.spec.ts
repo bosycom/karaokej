@@ -59,6 +59,21 @@ describe('PlaylistsService', () => {
     expect(orphanItems.n).toBe(0);
   });
 
+  it('inserts an item before an existing playlist item', () => {
+    const playlist = playlists.create({ name: 'Insert before' });
+    playlists.addItem(playlist.id, trackA);
+    const withSecond = playlists.addItem(playlist.id, trackB);
+    const beforeId = withSecond.items[1]!.id;
+
+    const after = playlists.addItem(playlist.id, trackA, beforeId);
+    expect(after.items.map((item) => item.track.id)).toEqual([
+      trackA,
+      trackA,
+      trackB,
+    ]);
+    expect(after.items.map((item) => item.position)).toEqual([1, 2, 3]);
+  });
+
   it('adds items, allows duplicates, and preserves order', () => {
     const playlist = playlists.create({ name: 'Duplicates' });
     playlists.addItem(playlist.id, trackA);
