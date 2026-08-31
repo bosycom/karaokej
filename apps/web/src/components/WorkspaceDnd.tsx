@@ -30,9 +30,9 @@ import {
 } from '../dnd/dropInsert';
 import { workspaceCollision } from '../dnd/workspaceCollision';
 import { formatDuration, formatTrackSubtitle } from '../format';
-import { trackLabel } from '../session/SessionProvider';
 import { PlaylistPane } from './PlaylistPane';
 import { QueueList } from './QueueList';
+import { WorkspaceTrackLabel } from './WorkspaceTrackRow';
 
 interface WorkspaceDndProps {
   tracks: TrackDto[];
@@ -48,6 +48,7 @@ interface WorkspaceDndProps {
   onDeletePlaylist: (id: number) => void;
   onRemovePlaylistItem: (itemId: number) => void;
   onPlayPlaylist: (id: number) => void;
+  onPlayTrack: (track: TrackDto) => void;
   onClearQueue: () => void;
   onShuffleQueue: () => void;
   onPlaylistChanged: (detail: PlaylistDetailDto) => void;
@@ -74,6 +75,7 @@ export function WorkspaceDnd({
   onDeletePlaylist,
   onRemovePlaylistItem,
   onPlayPlaylist,
+  onPlayTrack,
   onClearQueue,
   onShuffleQueue,
   onPlaylistChanged,
@@ -342,6 +344,7 @@ export function WorkspaceDnd({
           onDelete={onDeletePlaylist}
           onRemoveItem={onRemovePlaylistItem}
           onPlay={onPlayPlaylist}
+          onPlayTrack={onPlayTrack}
           onShowCover={onShowCover}
         />
         <QueuePane
@@ -357,12 +360,12 @@ export function WorkspaceDnd({
       <DragOverlay>
         {active?.kind === 'queue' ? (
           <div className={`queue-overlay${active.item.id === currentQueueItemId ? ' current' : ''}`}>
-            <span className="queue-title">{trackLabel(active.item.track)}</span>
+            <WorkspaceTrackLabel track={active.item.track} />
           </div>
         ) : null}
         {active?.kind === 'playlist-item' ? (
           <div className={`queue-overlay${active.item.available ? '' : ' unavailable'}`}>
-            <span className="queue-title">{trackLabel(active.item.track)}</span>
+            <WorkspaceTrackLabel track={active.item.track} muted={!active.item.available} />
           </div>
         ) : null}
         {active?.kind === 'track' ? (

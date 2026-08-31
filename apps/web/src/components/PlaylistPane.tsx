@@ -18,6 +18,7 @@ interface PlaylistPaneProps {
   onDelete: (id: number) => void;
   onRemoveItem: (itemId: number) => void;
   onPlay: (id: number) => void;
+  onPlayTrack: (track: TrackDto) => void;
   onShowCover?: (track: TrackDto) => void;
 }
 
@@ -33,6 +34,7 @@ export function PlaylistPane({
   onDelete,
   onRemoveItem,
   onPlay,
+  onPlayTrack,
   onShowCover,
 }: PlaylistPaneProps) {
   const [creating, setCreating] = useState(false);
@@ -218,6 +220,7 @@ export function PlaylistPane({
                 <PlaylistItemList
                   items={detail.items}
                   onRemove={onRemoveItem}
+                  onPlayTrack={onPlayTrack}
                   dropLine={dropLine}
                   onShowCover={onShowCover}
                 />

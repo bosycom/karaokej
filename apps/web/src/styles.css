@@ -151,6 +151,7 @@ input[type='text'],
   flex-wrap: wrap;
 }
 
+.track-meta .circular-progress,
 .queue-actions .circular-progress {
   flex-shrink: 0;
 }
@@ -1001,7 +1002,9 @@ a.search-miss-btn:hover {
 }
 
 .library-pane {
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .queue-pane,
@@ -1018,7 +1021,8 @@ a.search-miss-btn:hover {
 }
 
 .playlist-pane-toolbar,
-.queue-pane-toolbar {
+.queue-pane-toolbar,
+.library-pane-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1028,7 +1032,8 @@ a.search-miss-btn:hover {
 }
 
 .playlist-pane-toolbar h2,
-.queue-pane-toolbar h2 {
+.queue-pane-toolbar h2,
+.library-pane-toolbar h2 {
   margin: 0;
 }
 
@@ -1135,7 +1140,8 @@ a.search-miss-btn:hover {
 }
 
 .playlist-items-scroll,
-.queue-items-scroll {
+.queue-items-scroll,
+.library-pane-scroll {
   flex: 1;
   min-height: 0;
   overflow: auto;
@@ -1183,13 +1189,25 @@ a.search-miss-btn:hover {
   opacity: 0.72;
 }
 
-.playlist-item-list li.unavailable .playlist-item-main strong {
+.playlist-item-list li.unavailable .workspace-track-label strong {
   color: var(--muted);
 }
 
-.playlist-item-main {
+.workspace-track-label {
   flex: 1;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-track-label .workspace-track-artist {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.workspace-track-label strong {
+  font-weight: 700;
 }
 
 .modal-actions-multi {
@@ -1265,8 +1283,7 @@ a.search-miss-btn:hover {
   border-bottom: 1px solid #222230;
 }
 
-.track-list strong,
-.queue-title {
+.track-list strong {
   display: block;
 }
 
@@ -1281,17 +1298,6 @@ a.search-miss-btn:hover {
   padding-left: 1rem;
   padding-right: 1rem;
   border-color: var(--gold-deep);
-}
-
-.queue-title {
-  background: none;
-  border: 0;
-  padding: 0;
-  border-radius: 0;
-  text-align: left;
-  color: inherit;
-  flex: 1;
-  min-width: 0;
 }
 
 .queue-list li {
@@ -1334,14 +1340,6 @@ a.search-miss-btn:hover {
 .queue-list li button,
 .queue-list li .cover-art-button {
   cursor: pointer;
-}
-
-.queue-list li .queue-title {
-  cursor: grab;
-}
-
-.queue-list li:active .queue-title {
-  cursor: grabbing;
 }
 
 .queue-list li.dragging {
@@ -1604,12 +1602,6 @@ a.search-miss-btn:hover {
 
 .karaoke-cover {
   margin: 0 auto 0.4rem;
-}
-
-/* Absorb the free space so covers and actions do not drift apart. */
-.queue-title {
-  flex: 1;
-  min-width: 0;
 }
 
 .track-search-term {

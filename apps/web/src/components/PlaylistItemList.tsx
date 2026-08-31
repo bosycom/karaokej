@@ -1,15 +1,14 @@
 import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { FiX } from 'react-icons/fi';
-import { PlaylistItemDto } from '@karaokej/shared';
+import { PlaylistItemDto, TrackDto } from '@karaokej/shared';
 import { playlistItemDragId } from '../dnd/dragIds';
 import { dropLineClass, type DropLine } from '../dnd/dropInsert';
-import { formatDuration } from '../format';
-import { CoverArt } from './CoverArt';
+import { WorkspaceTrackRow } from './WorkspaceTrackRow';
 
 interface PlaylistItemListProps {
   items: PlaylistItemDto[];
   onRemove: (itemId: number) => void;
+  onPlayTrack: (track: TrackDto) => void;
   dropLine?: DropLine | null;
   onShowCover?: (track: PlaylistItemDto['track']) => void;
 }
@@ -17,6 +16,7 @@ interface PlaylistItemListProps {
 export function PlaylistItemList({
   items,
   onRemove,
+  onPlayTrack,
   dropLine = null,
   onShowCover,
 }: PlaylistItemListProps) {
@@ -31,6 +31,7 @@ export function PlaylistItemList({
             key={item.id}
             item={item}
             onRemove={onRemove}
+            onPlayTrack={onPlayTrack}
             dropLineClassName={dropLineClass(
               item.id,
               index === items.length - 1,
@@ -48,11 +49,13 @@ export function PlaylistItemList({
 function SortablePlaylistItem({
   item,
   onRemove,
+  onPlayTrack,
   dropLineClassName,
   onShowCover,
 }: {
   item: PlaylistItemDto;
   onRemove: (itemId: number) => void;
+  onPlayTrack: (track: TrackDto) => void;
   dropLineClassName: string;
   onShowCover?: (track: PlaylistItemDto['track']) => void;
 }) {
@@ -74,32 +77,19 @@ function SortablePlaylistItem({
       title={item.available ? 'Drag to reorder or add to the queue' : undefined}
       {...(item.available ? { ...attributes, ...listeners } : {})}
     >
-      <CoverArt
+      <WorkspaceTrackRow
         track={item.track}
-        size={32}
-        onClick={onShowCover ? () => onShowCover(item.track) : undefined}
+        onPlay={() => onPlayTrack(item.track)}
+        playDisabled={!item.available}
+        onRemove={() => onRemove(item.id)}
+        removeTitle="Remove from playlist"
+        removeAriaLabel="Remove from playlist"
+        onShowCover={onShowCover}
+        labelMuted={!item.available}
+        extras={
+          !item.available ? <span className="badge warn">Missing</span> : undefined
+        }
       />
-      <div className="playlist-item-main">
-        <strong>{item.track.title}</strong>
-        <span>
-          {item.track.artist ?? 'Unknown artist'}
-          {item.track.album ? ` · ${item.track.album}` : ''}
-        </span>
-      </div>
-      <div className="track-meta">
-        {!item.available && <span className="badge warn">Missing</span>}
-        <span className="time">{formatDuration(item.track.durationMs)}</span>
-        <button
-          type="button"
-          className="icon-btn"
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={() => onRemove(item.id)}
-          title="Remove from playlist"
-          aria-label="Remove from playlist"
-        >
-          <FiX aria-hidden />
-        </button>
-      </div>
     </li>
   );
 }

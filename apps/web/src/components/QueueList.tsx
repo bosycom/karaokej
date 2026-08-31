@@ -1,15 +1,14 @@
 import { useSortable } from '@dnd-kit/sortable';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { FiX } from 'react-icons/fi';
 import { QueueItemDto } from '@karaokej/shared';
 import { api } from '../api';
 import { queueDragId } from '../dnd/dragIds';
 import { dropLineClass, type DropLine } from '../dnd/dropInsert';
 import { queueSeparationDisplay } from '../queue/queueSeparationDisplay';
-import { trackLabel, useSession } from '../session/SessionProvider';
+import { useSession } from '../session/SessionProvider';
 import { CircularProgress } from './CircularProgress';
-import { CoverArt } from './CoverArt';
+import { WorkspaceTrackRow } from './WorkspaceTrackRow';
 
 interface QueueListProps {
   items: QueueItemDto[];
@@ -79,32 +78,22 @@ function SortableQueueItem({
       {...attributes}
       {...listeners}
     >
-      <CoverArt
+      <WorkspaceTrackRow
         track={item.track}
-        size={32}
-        onClick={onShowCover ? () => onShowCover(item.track) : undefined}
+        onPlay={() => void api.playItem(item.id)}
+        onRemove={() => void api.removeFromQueue(item.id)}
+        onShowCover={onShowCover}
+        extras={
+          <>
+            {separation.kind === 'progress' && (
+              <CircularProgress percent={separation.percent} />
+            )}
+            {separation.kind === 'queued' && (
+              <CircularProgress percent={0} indeterminate title="Queued for AI separation" />
+            )}
+          </>
+        }
       />
-      <button type="button" className="queue-title" onClick={() => void api.playItem(item.id)}>
-        {trackLabel(item.track)}
-      </button>
-      <div className="queue-actions">
-        {separation.kind === 'progress' && (
-          <CircularProgress percent={separation.percent} />
-        )}
-        {separation.kind === 'queued' && (
-          <CircularProgress percent={0} indeterminate title="Queued for AI separation" />
-        )}
-        <button
-          type="button"
-          className="icon-btn"
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={() => void api.removeFromQueue(item.id)}
-          title="Remove"
-          aria-label="Remove"
-        >
-          <FiX aria-hidden />
-        </button>
-      </div>
     </li>
   );
 }

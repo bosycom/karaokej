@@ -812,49 +812,54 @@ export function LibraryPage() {
         onShuffleQueue={handleShuffleQueue}
         onPlaylistChanged={setPlaylistDetail}
         onPlaylistsRefresh={() => void loadPlaylists()}
+        onPlayTrack={handlePlayTrack}
         onShowCover={setCoverTrack}
         library={
           <section className="library-pane">
-            {tracks.length === 0 && !query.trim() ? (
-              <p className="empty">No songs match. Scan the library if it is empty.</p>
-            ) : (
-              <>
-                {tracks.length > 0 ? (
-                  <ul className="track-list">
-                    {tracks.map((track) => (
-                      <DraggableTrackRow
-                        key={track.id}
-                        track={track}
-                        fetching={fetchingIds.has(track.id)}
-                        onFetchLyrics={(trackId) => void fetchTrackLyrics(trackId)}
-                        onRate={setTrackRating}
-                        onApplySearchTerm={applySearch}
-                        onPlay={handlePlayTrack}
-                        onEditMetadata={setMetadataTrack}
-                        onRemoveAiStem={handleRemoveAiStem}
-                        onDeleteFile={handleDeleteFile}
-                        onShowCover={setCoverTrack}
-                      />
-                    ))}
-                  </ul>
-                ) : null}
-                {query.trim() ? (
-                  <SearchMissFallback
-                    query={query.trim()}
-                    hasLibraryMatches={tracks.length > 0}
-                    ytdlpAvailable={status?.ytdlpAvailable ?? false}
-                    ytsaverAvailable={status?.ytsaverAvailable ?? false}
-                    downloadRunning={state.jobs.download.running}
-                    downloadMessage={state.jobs.download.message}
-                    onTrackDownloaded={(track) => {
-                      void loadTracks(query, page, minRating, hideDuplicates);
-                      handlePlayTrack(track);
-                    }}
-                  />
-                ) : null}
-              </>
-            )}
-            <div className="pager">
+            <div className="library-pane-toolbar">
+              <h2>Explorer</h2>
+            </div>
+            <div className="library-pane-scroll">
+              {tracks.length === 0 && !query.trim() ? (
+                <p className="empty">No songs match. Scan the library if it is empty.</p>
+              ) : (
+                <>
+                  {tracks.length > 0 ? (
+                    <ul className="track-list">
+                      {tracks.map((track) => (
+                        <DraggableTrackRow
+                          key={track.id}
+                          track={track}
+                          fetching={fetchingIds.has(track.id)}
+                          onFetchLyrics={(trackId) => void fetchTrackLyrics(trackId)}
+                          onRate={setTrackRating}
+                          onApplySearchTerm={applySearch}
+                          onPlay={handlePlayTrack}
+                          onEditMetadata={setMetadataTrack}
+                          onRemoveAiStem={handleRemoveAiStem}
+                          onDeleteFile={handleDeleteFile}
+                          onShowCover={setCoverTrack}
+                        />
+                      ))}
+                    </ul>
+                  ) : null}
+                  {query.trim() ? (
+                    <SearchMissFallback
+                      query={query.trim()}
+                      hasLibraryMatches={tracks.length > 0}
+                      ytdlpAvailable={status?.ytdlpAvailable ?? false}
+                      ytsaverAvailable={status?.ytsaverAvailable ?? false}
+                      downloadRunning={state.jobs.download.running}
+                      downloadMessage={state.jobs.download.message}
+                      onTrackDownloaded={(track) => {
+                        void loadTracks(query, page, minRating, hideDuplicates);
+                        handlePlayTrack(track);
+                      }}
+                    />
+                  ) : null}
+                </>
+              )}
+              <div className="pager">
               <button
                 type="button"
                 className="icon-btn"
@@ -911,6 +916,7 @@ export function LibraryPage() {
               <span className="pager-summary">
                 Page {page} / {pages} · {total} songs
               </span>
+              </div>
             </div>
           </section>
         }
