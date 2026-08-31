@@ -249,12 +249,21 @@ export interface ArtistBioChooseDto {
   audiodbId?: string;
 }
 
+export const DEFAULT_RATING_GOLD = '#ffe08a';
+export const DEFAULT_RATING_SILVER = '#c8d0dc';
+export const DEFAULT_RATING_BLUE = '#3b82f6';
+export const DEFAULT_RATING_RASPBERRY = '#e11d74';
+
 export interface AppSettingsDto {
   removePlayedFromQueue: boolean;
   /** 0 = off, 1–10 = crossfade duration in seconds */
   crossfadeSeconds: number;
   /** Last non-zero crossfade duration used when toggling back on from the player bar */
   crossfadePrefSeconds: number;
+  ratingGold: string;
+  ratingSilver: string;
+  ratingBlue: string;
+  ratingRaspberry: string;
 }
 
 export interface SessionStateDto {

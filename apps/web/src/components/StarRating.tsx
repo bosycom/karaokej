@@ -1,10 +1,14 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { ProcessingText } from './ProcessingText';
 import {
+  contrastInk,
   formatRatingLabel,
+  ratingFill,
   ratingTone,
+  ratingToneColor,
   unitsLabel,
 } from './starRatingDisplay';
+import { useSession } from '../session/SessionProvider';
 
 const STAR_PATH =
   'M12 2.4l2.7 5.8 6.3.8-4.6 4.3 1.2 6.2L12 16.6 6.4 19.5l1.2-6.2L3 9l6.3-.8z';
@@ -31,10 +35,21 @@ export function StarRating({
   const [editing, setEditing] = useState(false);
   const [hover, setHover] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
+  const { state } = useSession();
 
   const displayed = hover ?? saved;
   const viewLabel = formatRatingLabel(saved);
   const tone = ratingTone(saved);
+  const fill = ratingFill(saved);
+  const fillColor = ratingToneColor(tone, state.settings);
+  const labelInk = fillColor ? contrastInk(fillColor) : null;
+  const viewStyle: CSSProperties | undefined =
+    labelInk != null
+      ? ({
+          '--star-label': labelInk,
+          '--star-label-shadow': labelInk === '#111' ? '#fff' : '#111',
+        } as CSSProperties)
+      : undefined;
 
   useEffect(() => {
     if (!alwaysExpanded) {
@@ -141,18 +156,32 @@ export function StarRating({
       >
         <button
           type="button"
-          className={`star-rating-view star-rating-tone-${tone}`}
+          className={`star-rating-view star-rating-tone-${tone}${
+            fill === 0.5 ? ' star-rating-half' : ''
+          }`}
+          style={viewStyle}
           disabled={disabled || saving}
           aria-label={viewAria}
           title={saved > 0 ? unitsLabel(saved) : 'Unrated'}
           onClick={openEditor}
         >
           <svg className="star-shape" viewBox="0 0 24 24" aria-hidden>
-            {saved > 0 ? (
-              <path className="star-fill" d={STAR_PATH} />
-            ) : (
-              <path className="star-empty" d={STAR_PATH} />
-            )}
+            {fill === 0.5 ? (
+              <defs>
+                <clipPath id={`${clipId}-view`}>
+                  <rect x="0" y="0" width="12" height="24" />
+                </clipPath>
+              </defs>
+            ) : null}
+            {fill === 1 ? <path className="star-fill" d={STAR_PATH} /> : null}
+            {fill === 0.5 ? (
+              <path
+                className="star-fill"
+                d={STAR_PATH}
+                clipPath={`url(#${clipId}-view)`}
+              />
+            ) : null}
+            {fill === 0 ? <path className="star-empty" d={STAR_PATH} /> : null}
             <path className="star-stroke" d={STAR_PATH} />
           </svg>
           {viewLabel ? (

@@ -302,6 +302,19 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [clientId]);
 
   useEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty('--rating-gold', state.settings.ratingGold);
+    root.style.setProperty('--rating-silver', state.settings.ratingSilver);
+    root.style.setProperty('--rating-blue', state.settings.ratingBlue);
+    root.style.setProperty('--rating-raspberry', state.settings.ratingRaspberry);
+  }, [
+    state.settings.ratingGold,
+    state.settings.ratingSilver,
+    state.settings.ratingBlue,
+    state.settings.ratingRaspberry,
+  ]);
+
+  useEffect(() => {
     let cancelled = false;
     if (!currentTrack) {
       setLyrics(null);

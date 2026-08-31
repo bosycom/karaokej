@@ -2,6 +2,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   SETTING_CROSSFADE_SECONDS,
   SETTING_CROSSFADE_SECONDS_PREF,
+  SETTING_RATING_BLUE,
+  SETTING_RATING_GOLD,
+  SETTING_RATING_RASPBERRY,
+  SETTING_RATING_SILVER,
   SettingsService,
 } from './settings.service';
 import { createTestDb, TestDbService } from '../test/test-db';
@@ -25,6 +29,10 @@ describe('SettingsService', () => {
       removePlayedFromQueue: false,
       crossfadeSeconds: 0,
       crossfadePrefSeconds: 5,
+      ratingGold: '#ffe08a',
+      ratingSilver: '#c8d0dc',
+      ratingBlue: '#3b82f6',
+      ratingRaspberry: '#e11d74',
     });
   });
 
@@ -60,5 +68,46 @@ describe('SettingsService', () => {
       .get(SETTING_CROSSFADE_SECONDS_PREF) as { value: string };
     expect(live.value).toBe('4');
     expect(pref.value).toBe('4');
+  });
+
+  it('persists rating colors in app_settings', () => {
+    settings.patch({
+      ratingGold: '#aabbcc',
+      ratingSilver: '#ddeeff',
+      ratingBlue: '#112233',
+      ratingRaspberry: '#445566',
+    });
+    expect(settings.get()).toMatchObject({
+      ratingGold: '#aabbcc',
+      ratingSilver: '#ddeeff',
+      ratingBlue: '#112233',
+      ratingRaspberry: '#445566',
+    });
+    const gold = db.raw
+      .prepare(`SELECT value FROM app_settings WHERE key = ?`)
+      .get(SETTING_RATING_GOLD) as { value: string };
+    expect(gold.value).toBe('#aabbcc');
+  });
+
+  it('falls back to defaults for invalid rating colors', () => {
+    db.raw
+      .prepare(
+        `INSERT INTO app_settings (key, value) VALUES (?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      )
+      .run(SETTING_RATING_GOLD, 'not-a-color');
+    db.raw
+      .prepare(
+        `INSERT INTO app_settings (key, value) VALUES (?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      )
+      .run(SETTING_RATING_SILVER, '#12345');
+    expect(settings.get()).toMatchObject({
+      ratingGold: '#ffe08a',
+      ratingSilver: '#c8d0dc',
+    });
+    expect(
+      settings.patch({ ratingBlue: 'blue' }).ratingBlue,
+    ).toBe('#3b82f6');
   });
 });

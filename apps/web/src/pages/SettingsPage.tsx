@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { LibraryStatusDto } from '@karaokej/shared';
+import { AppSettingsDto, LibraryStatusDto } from '@karaokej/shared';
 import { AppTopbar } from '../components/AppTopbar';
 import { PlayerBar } from '../components/PlayerBar';
 import {
@@ -17,6 +17,20 @@ import {
 } from '../backgrounds/backgroundMode';
 import { api } from '../api';
 import { useSession } from '../session/SessionProvider';
+
+const RATING_COLOR_FIELDS: Array<{
+  key: keyof Pick<
+    AppSettingsDto,
+    'ratingGold' | 'ratingSilver' | 'ratingBlue' | 'ratingRaspberry'
+  >;
+  label: string;
+  ranges: string;
+}> = [
+  { key: 'ratingGold', label: 'Gold', ranges: '5 and 4.5 stars' },
+  { key: 'ratingSilver', label: 'Silver', ranges: '4 and 3.5 stars' },
+  { key: 'ratingBlue', label: 'Blue', ranges: '3 and 2.5 stars' },
+  { key: 'ratingRaspberry', label: 'Raspberry', ranges: '2 through 0.5 stars' },
+];
 
 export function SettingsPage() {
   const { state } = useSession();
@@ -48,6 +62,16 @@ export function SettingsPage() {
   const handleCrossfadeChange = (seconds: number) => {
     setSettingsError(null);
     void api.patchSettings({ crossfadeSeconds: seconds }).catch((err) => {
+      setSettingsError(err instanceof Error ? err.message : String(err));
+    });
+  };
+
+  const handleRatingColorChange = (
+    key: (typeof RATING_COLOR_FIELDS)[number]['key'],
+    value: string,
+  ) => {
+    setSettingsError(null);
+    void api.patchSettings({ [key]: value }).catch((err) => {
       setSettingsError(err instanceof Error ? err.message : String(err));
     });
   };
@@ -114,6 +138,34 @@ export function SettingsPage() {
             player bar to toggle quickly; it stays on for every song until you
             turn it off.
           </p>
+          {settingsError && <p className="settings-feedback error">{settingsError}</p>}
+        </section>
+
+        <section className="settings-section">
+          <h2>Star rating colors</h2>
+          <p className="settings-copy">
+            Rating ranges are fixed. Adjust the four colors used for library stars.
+          </p>
+          <ul className="settings-color-list">
+            {RATING_COLOR_FIELDS.map(({ key, label, ranges }) => (
+              <li key={key}>
+                <label className="settings-color-row">
+                  <span className="settings-color-copy">
+                    <strong>{label}</strong>
+                    <span className="settings-color-ranges">{ranges}</span>
+                  </span>
+                  <input
+                    type="color"
+                    value={state.settings[key]}
+                    onChange={(event) =>
+                      handleRatingColorChange(key, event.target.value)
+                    }
+                    aria-label={`${label} star color`}
+                  />
+                </label>
+              </li>
+            ))}
+          </ul>
           {settingsError && <p className="settings-feedback error">{settingsError}</p>}
         </section>
 
