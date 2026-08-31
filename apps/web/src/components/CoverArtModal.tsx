@@ -252,7 +252,7 @@ export function CoverArtModal({ track, onClose, onSearch }: CoverArtModalProps) 
           return;
         }
         setBio(result);
-        if (result.status === 'ready') {
+        if (result.status === 'ready' && result.topTracks.length === 0) {
           void api.trackArtistBioExtras(track.id).then((extras) => {
             if (!cancelled) {
               setBio(extras);
@@ -285,15 +285,6 @@ export function CoverArtModal({ track, onClose, onSearch }: CoverArtModalProps) 
       .refreshTrackArtistBio(track.id)
       .then((result) => {
         setBio(result);
-        if (result.status === 'ready') {
-          return api.trackArtistBioExtras(track.id);
-        }
-        return result;
-      })
-      .then((result) => {
-        if (result) {
-          setBio(result);
-        }
       })
       .catch((err) => {
         setError(err instanceof Error ? err.message : String(err));

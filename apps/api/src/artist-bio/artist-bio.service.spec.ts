@@ -216,4 +216,79 @@ describe('ArtistBioService', () => {
     expect(deezer.fetchTopTracksForArtist).not.toHaveBeenCalled();
     expect(audiodb.fetchDiscographyByName).not.toHaveBeenCalled();
   });
+
+  it('refresh always reloads extras from the APIs and persists them', async () => {
+    const trackId = insertTrack(db, {
+      relativePath: 'deftones/change.mp3',
+      title: 'Change',
+      artist: 'Deftones',
+    });
+    db.raw
+      .prepare(
+        `INSERT INTO artist_bios (
+           lookup_key, display_name, status, biography, albums_json,
+           top_tracks_json, fetched_at, extras_fetched_at
+         ) VALUES (?, ?, 'ready', ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        'name:deftones',
+        'Deftones',
+        'Old bio',
+        JSON.stringify([{ name: 'Around the Fur', year: '1997' }]),
+        JSON.stringify([{ name: 'Cached Top' }]),
+        Date.now(),
+        Date.now(),
+      );
+
+    audiodb.searchArtist.mockResolvedValue([
+      {
+        idArtist: '111',
+        strArtist: 'Deftones',
+        strBiographyEN: 'American alternative metal band',
+        strBiography: null,
+        strGenre: 'Alternative Metal',
+        strStyle: 'Nu Metal',
+        strMood: 'Angry',
+        strCountry: 'USA',
+        intFormedYear: '1988',
+        strMusicBrainzID: null,
+      },
+    ]);
+    audiodb.fetchDiscographyByName.mockResolvedValue([
+      { strAlbum: 'White Pony', intYearReleased: '2000' },
+    ]);
+    deezer.fetchTopTracksForArtist.mockResolvedValue([
+      { name: 'Change (In the House of Flies)' },
+      { name: 'My Own Summer (Shove It)' },
+    ]);
+
+    const result = await service.refreshForTrack(trackId);
+
+    expect(result.biography).toBe('American alternative metal band');
+    expect(result.albums).toEqual([{ name: 'White Pony', year: '2000' }]);
+    expect(result.topTracks).toEqual([
+      { name: 'Change (In the House of Flies)' },
+      { name: 'My Own Summer (Shove It)' },
+    ]);
+    expect(audiodb.searchArtist).toHaveBeenCalled();
+    expect(deezer.fetchTopTracksForArtist).toHaveBeenCalledWith('Deftones');
+
+    const row = db.raw
+      .prepare(
+        `SELECT biography, albums_json, top_tracks_json FROM artist_bios WHERE lookup_key = ?`,
+      )
+      .get('name:deftones') as {
+        biography: string;
+        albums_json: string;
+        top_tracks_json: string;
+      };
+    expect(row.biography).toBe('American alternative metal band');
+    expect(JSON.parse(row.albums_json)).toEqual([
+      { name: 'White Pony', year: '2000' },
+    ]);
+    expect(JSON.parse(row.top_tracks_json)).toEqual([
+      { name: 'Change (In the House of Flies)' },
+      { name: 'My Own Summer (Shove It)' },
+    ]);
+  });
 });

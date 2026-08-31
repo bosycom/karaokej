@@ -75,13 +75,20 @@ export class ArtistBioService {
     return this.resolveForTrack(track, name!, true);
   }
 
-  refreshForTrack(trackId: number, chosenName?: string | null): Promise<ArtistBioDto> {
+  async refreshForTrack(
+    trackId: number,
+    chosenName?: string | null,
+  ): Promise<ArtistBioDto> {
     const track = this.requireTrack(trackId);
     const keys = this.lookupKeysForTrack(track, chosenName ?? preferredArtistName(track));
     for (const key of keys) {
       this.db.raw.prepare(`DELETE FROM artist_bios WHERE lookup_key = ?`).run(key);
     }
-    return this.resolveForTrack(track, chosenName ?? null, true);
+    const base = await this.resolveForTrack(track, chosenName ?? null, true);
+    if (base.status !== 'ready') {
+      return base;
+    }
+    return this.populateExtras(track, base, true);
   }
 
   async getExtrasForTrack(trackId: number): Promise<ArtistBioDto> {
@@ -90,22 +97,32 @@ export class ArtistBioService {
     if (base.status !== 'ready') {
       return base;
     }
+    return this.populateExtras(track, base, false);
+  }
+
+  private async populateExtras(
+    track: TrackRow,
+    base: ArtistBioDto,
+    force: boolean,
+  ): Promise<ArtistBioDto> {
     const row = this.findCachedRow(track);
     if (!row) {
       return base;
     }
-    if (row.albums_json != null && row.top_tracks_json != null) {
+    const albumsCached = row.albums_json != null;
+    const topTracksCached = row.top_tracks_json != null;
+    if (!force && albumsCached && topTracksCached) {
       return this.rowToDto(row);
     }
     const displayName = row.display_name ?? preferredArtistName(track);
     const mbid = row.musicbrainz_id ?? track.musicbrainz_artist_id;
     const [albums, topTracks] = await Promise.all([
-      row.albums_json == null
+      force || !albumsCached
         ? this.fetchAlbums(displayName, mbid)
-        : this.parseAlbums(row.albums_json),
-      row.top_tracks_json == null
+        : this.parseAlbums(row.albums_json!),
+      force || !topTracksCached
         ? this.fetchTopTracks(displayName)
-        : this.parseTopTracks(row.top_tracks_json),
+        : this.parseTopTracks(row.top_tracks_json!),
     ]);
     const now = Date.now();
     const albumsJson = JSON.stringify(albums);
