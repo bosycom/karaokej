@@ -288,6 +288,10 @@ export interface PlaylistSummaryDto {
   createdAt: string;
   updatedAt: string;
   itemCount: number;
+  /** Sum of known track durations in milliseconds. */
+  totalDurationMs: number;
+  /** Listed tracks with no duration yet. */
+  unknownDurationCount: number;
 }
 
 export interface PlaylistItemDto {

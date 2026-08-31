@@ -118,6 +118,58 @@ describe('PlaylistsService', () => {
     ]);
   });
 
+  it('aggregates duration totals in playlist summaries', () => {
+    const trackWithDuration = insertTrack(db, {
+      relativePath: 'c/long.mp3',
+      title: 'Long Song',
+      artist: 'Artist C',
+      durationMs: 180_000,
+    });
+    const trackUnknown = insertTrack(db, {
+      relativePath: 'd/unknown.mp3',
+      title: 'Unknown Length',
+      artist: 'Artist D',
+      durationMs: null,
+    });
+    const playlist = playlists.create({ name: 'Mix' });
+    playlists.addItem(playlist.id, trackWithDuration);
+    playlists.addItem(playlist.id, trackUnknown);
+    playlists.addItem(playlist.id, trackWithDuration);
+
+    const listed = playlists.list().find((entry) => entry.id === playlist.id);
+    expect(listed).toMatchObject({
+      itemCount: 3,
+      totalDurationMs: 360_000,
+      unknownDurationCount: 1,
+    });
+  });
+
+  it('aggregates duration totals in playlist summaries', () => {
+    const trackWithDuration = insertTrack(db, {
+      relativePath: 'c/long.mp3',
+      title: 'Long Song',
+      artist: 'Artist C',
+      durationMs: 180_000,
+    });
+    const trackUnknown = insertTrack(db, {
+      relativePath: 'd/unknown.mp3',
+      title: 'Unknown Length',
+      artist: 'Artist D',
+      durationMs: null,
+    });
+    const playlist = playlists.create({ name: 'Mix' });
+    playlists.addItem(playlist.id, trackWithDuration);
+    playlists.addItem(playlist.id, trackUnknown);
+    playlists.addItem(playlist.id, trackWithDuration);
+
+    const listed = playlists.list().find((entry) => entry.id === playlist.id);
+    expect(listed).toMatchObject({
+      itemCount: 3,
+      totalDurationMs: 360_000,
+      unknownDurationCount: 1,
+    });
+  });
+
   it('rejects unknown track ids when adding items', () => {
     const playlist = playlists.create({ name: 'Strict' });
     expect(() => playlists.addItem(playlist.id, 99999)).toThrow(NotFoundException);

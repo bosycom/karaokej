@@ -8,6 +8,38 @@ export function formatDuration(ms: number | null | undefined): string {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
+/** Clock duration for accumulated totals; includes hours when needed. */
+export function formatClockDuration(ms: number | null | undefined): string {
+  if (!ms || ms < 0) {
+    return '–:––';
+  }
+  const totalSec = Math.floor(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if (h > 0) {
+    return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  }
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+export function formatAccumulatedDuration({
+  totalMs,
+  unknownCount,
+}: {
+  totalMs: number;
+  unknownCount: number;
+}): string | null {
+  if (totalMs <= 0 && unknownCount <= 0) {
+    return null;
+  }
+  const base = totalMs > 0 ? formatClockDuration(totalMs) : '–:––';
+  if (unknownCount > 0) {
+    return `${base} + ?`;
+  }
+  return base;
+}
+
 export const LYRIC_DURATION_MATCH_TOLERANCE_MS = 2000;
 
 export function lyricDurationMatches(

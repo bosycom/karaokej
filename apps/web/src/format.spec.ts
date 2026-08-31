@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { formatTrackSubtitle, karaokeStemBadge, lyricDurationMatches } from './format';
+import {
+  formatAccumulatedDuration,
+  formatClockDuration,
+  formatTrackSubtitle,
+  karaokeStemBadge,
+  lyricDurationMatches,
+} from './format';
 
 describe('formatTrackSubtitle', () => {
   it('shows artist and album with year in parentheses', () => {
@@ -100,6 +106,41 @@ describe('karaokeStemBadge', () => {
     expect(karaokeStemBadge('none')).toBeNull();
     expect(karaokeStemBadge('failed')).toBeNull();
     expect(karaokeStemBadge('unsupported')).toBeNull();
+  });
+});
+
+describe('formatClockDuration', () => {
+  it('formats sub-hour totals as m:ss', () => {
+    expect(formatClockDuration(90_000)).toBe('1:30');
+    expect(formatClockDuration(3_590_000)).toBe('59:50');
+  });
+
+  it('formats hour-plus totals as h:mm:ss', () => {
+    expect(formatClockDuration(3_600_000)).toBe('1:00:00');
+    expect(formatClockDuration(5_461_000)).toBe('1:31:01');
+  });
+
+  it('returns placeholder for missing values', () => {
+    expect(formatClockDuration(null)).toBe('–:––');
+  });
+});
+
+describe('formatAccumulatedDuration', () => {
+  it('formats known totals', () => {
+    expect(formatAccumulatedDuration({ totalMs: 1_930_000, unknownCount: 0 })).toBe(
+      '32:10',
+    );
+  });
+
+  it('appends incomplete hint when some durations are unknown', () => {
+    expect(formatAccumulatedDuration({ totalMs: 1_930_000, unknownCount: 2 })).toBe(
+      '32:10 + ?',
+    );
+    expect(formatAccumulatedDuration({ totalMs: 0, unknownCount: 3 })).toBe('–:–– + ?');
+  });
+
+  it('returns null for empty lists', () => {
+    expect(formatAccumulatedDuration({ totalMs: 0, unknownCount: 0 })).toBeNull();
   });
 });
 

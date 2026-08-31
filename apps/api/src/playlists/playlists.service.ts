@@ -26,16 +26,29 @@ export class PlaylistsService {
     const rows = this.db.raw
       .prepare(
         `SELECT p.id, p.name, p.description, p.created_at, p.updated_at,
-                COUNT(pi.id) AS item_count
+                COUNT(pi.id) AS item_count,
+                COALESCE(SUM(t.duration_ms), 0) AS total_duration_ms,
+                SUM(CASE WHEN pi.id IS NOT NULL AND t.duration_ms IS NULL THEN 1 ELSE 0 END) AS unknown_duration_count
          FROM playlists p
          LEFT JOIN playlist_items pi ON pi.playlist_id = p.id
+         LEFT JOIN tracks t ON t.id = pi.track_id
          GROUP BY p.id
          ORDER BY p.name COLLATE NOCASE, p.id`,
       )
       .all() as Array<
-      PlaylistRow & { item_count: number }
+      PlaylistRow & {
+        item_count: number;
+        total_duration_ms: number;
+        unknown_duration_count: number;
+      }
     >;
-    return rows.map((row) => this.summaryToDto(row, row.item_count));
+    return rows.map((row) =>
+      this.summaryToDto(row, {
+        itemCount: row.item_count,
+        totalDurationMs: row.total_duration_ms,
+        unknownDurationCount: row.unknown_duration_count,
+      }),
+    );
   }
 
   get(id: number): PlaylistDetailDto {
@@ -271,14 +284,25 @@ export class PlaylistsService {
       .run(updatedAt, playlistId);
   }
 
-  private summaryToDto(row: PlaylistRow, itemCount: number): PlaylistSummaryDto {
+  private summaryToDto(
+    row: PlaylistRow,
+    stats: Pick<
+      PlaylistSummaryDto,
+      'itemCount' | 'totalDurationMs' | 'unknownDurationCount'
+    >,
+  ): PlaylistSummaryDto {
     return {
       ...this.playlistMetaToDto(row),
-      itemCount,
+      ...stats,
     };
   }
 
-  private playlistMetaToDto(row: PlaylistRow): Omit<PlaylistSummaryDto, 'itemCount'> {
+  private playlistMetaToDto(
+    row: PlaylistRow,
+  ): Omit<
+    PlaylistSummaryDto,
+    'itemCount' | 'totalDurationMs' | 'unknownDurationCount'
+  > {
     return {
       id: row.id,
       name: row.name,
