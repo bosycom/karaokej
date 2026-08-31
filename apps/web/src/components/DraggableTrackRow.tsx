@@ -3,13 +3,13 @@ import { FiPlay, FiTag } from 'react-icons/fi';
 import { TrackDto } from '@karaokej/shared';
 import { api } from '../api';
 import { trackDragId } from '../dnd/dragIds';
-import { formatDuration, karaokeStemBadge, trackSubtitleSegments } from '../format';
+import { formatDuration, karaokeStemBadge } from '../format';
 import { CoverArt } from './CoverArt';
 import { IconMenu } from './IconMenu';
 import { LyricStatusBadge } from './LyricStatusBadge';
 import { ProcessingText } from './ProcessingText';
 import { StarRating } from './StarRating';
-import { TrackSearchTerm } from './TrackSearchTerm';
+import { isInteractiveTrackTarget, TrackMain } from './TrackMain';
 
 interface DraggableTrackRowProps {
   track: TrackDto;
@@ -49,36 +49,23 @@ export function DraggableTrackRow({
   };
 
   return (
-    <li ref={setNodeRef} className={isDragging ? 'dragging' : undefined}>
+    <li
+      ref={setNodeRef}
+      className={isDragging ? 'dragging' : undefined}
+      onDoubleClick={(event) => {
+        if (isInteractiveTrackTarget(event.target)) {
+          return;
+        }
+        onPlay(track);
+      }}
+    >
       <CoverArt track={track} size={48} onClick={() => onShowCover(track)} />
-      <div className="track-main" title="Drag to add to queue" {...listeners}>
-        <strong>
-          <TrackSearchTerm term={track.title} onApplySearchTerm={onApplySearchTerm} />
-        </strong>
-        <span>
-          {trackSubtitleSegments(track).map((segment, index) => {
-            if (segment.kind === 'artist' && segment.searchable) {
-              return (
-                <TrackSearchTerm
-                  key={`artist-${index}`}
-                  term={segment.text}
-                  onApplySearchTerm={onApplySearchTerm}
-                />
-              );
-            }
-            if (segment.kind === 'album') {
-              return (
-                <TrackSearchTerm
-                  key={`album-${index}`}
-                  term={segment.text}
-                  onApplySearchTerm={onApplySearchTerm}
-                />
-              );
-            }
-            return <span key={`${segment.kind}-${index}`}>{segment.text}</span>;
-          })}
-        </span>
-      </div>
+      <TrackMain
+        track={track}
+        title="Drag to add to queue"
+        onApplySearchTerm={onApplySearchTerm}
+        {...listeners}
+      />
       <div className="track-meta">
         <LyricStatusBadge
           status={track.lyricStatus}

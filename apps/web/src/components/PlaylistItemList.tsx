@@ -3,6 +3,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { PlaylistItemDto, TrackDto } from '@karaokej/shared';
 import { playlistItemDragId } from '../dnd/dragIds';
 import { dropLineClass, type DropLine } from '../dnd/dropInsert';
+import { isInteractiveTrackTarget } from './TrackMain';
 import { WorkspaceTrackRow } from './WorkspaceTrackRow';
 
 interface PlaylistItemListProps {
@@ -11,6 +12,7 @@ interface PlaylistItemListProps {
   onPlayTrack: (track: TrackDto) => void;
   dropLine?: DropLine | null;
   onShowCover?: (track: PlaylistItemDto['track']) => void;
+  onApplySearchTerm?: (term: string) => void;
 }
 
 export function PlaylistItemList({
@@ -19,6 +21,7 @@ export function PlaylistItemList({
   onPlayTrack,
   dropLine = null,
   onShowCover,
+  onApplySearchTerm,
 }: PlaylistItemListProps) {
   return (
     <SortableContext
@@ -39,6 +42,7 @@ export function PlaylistItemList({
               'playlist',
             )}
             onShowCover={onShowCover}
+            onApplySearchTerm={onApplySearchTerm}
           />
         ))}
       </ul>
@@ -52,12 +56,14 @@ function SortablePlaylistItem({
   onPlayTrack,
   dropLineClassName,
   onShowCover,
+  onApplySearchTerm,
 }: {
   item: PlaylistItemDto;
   onRemove: (itemId: number) => void;
   onPlayTrack: (track: TrackDto) => void;
   dropLineClassName: string;
   onShowCover?: (track: PlaylistItemDto['track']) => void;
+  onApplySearchTerm?: (term: string) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: playlistItemDragId(item.id),
@@ -75,6 +81,12 @@ function SortablePlaylistItem({
       style={style}
       className={`${isDragging ? 'dragging' : ''}${item.available ? '' : ' unavailable'}${dropLineClassName ? ` ${dropLineClassName}` : ''}`}
       title={item.available ? 'Drag to reorder or add to the queue' : undefined}
+      onDoubleClick={(event) => {
+        if (!item.available || isInteractiveTrackTarget(event.target)) {
+          return;
+        }
+        onPlayTrack(item.track);
+      }}
       {...(item.available ? { ...attributes, ...listeners } : {})}
     >
       <WorkspaceTrackRow
@@ -85,6 +97,7 @@ function SortablePlaylistItem({
         removeTitle="Remove from playlist"
         removeAriaLabel="Remove from playlist"
         onShowCover={onShowCover}
+        onApplySearchTerm={onApplySearchTerm}
         labelMuted={!item.available}
         extras={
           !item.available ? <span className="badge warn">Missing</span> : undefined

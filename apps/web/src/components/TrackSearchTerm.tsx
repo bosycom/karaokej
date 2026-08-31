@@ -10,7 +10,10 @@ export function TrackSearchTerm({ term, onApplySearchTerm }: TrackSearchTermProp
     event.stopPropagation();
   };
 
-  const apply = () => {
+  const apply = (detail = 1) => {
+    if (detail > 1) {
+      return;
+    }
     onApplySearchTerm(term);
   };
 
@@ -28,7 +31,7 @@ export function TrackSearchTerm({ term, onApplySearchTerm }: TrackSearchTermProp
       className="track-search-term"
       title="Use as search term"
       onPointerDown={stopDrag}
-      onClick={apply}
+      onClick={(event) => apply(event.detail)}
       onKeyDown={onKeyDown}
     >
       {term}

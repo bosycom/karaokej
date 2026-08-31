@@ -8,6 +8,7 @@ import { dropLineClass, type DropLine } from '../dnd/dropInsert';
 import { queueSeparationDisplay } from '../queue/queueSeparationDisplay';
 import { useSession } from '../session/SessionProvider';
 import { CircularProgress } from './CircularProgress';
+import { isInteractiveTrackTarget } from './TrackMain';
 import { WorkspaceTrackRow } from './WorkspaceTrackRow';
 
 interface QueueListProps {
@@ -15,6 +16,7 @@ interface QueueListProps {
   currentQueueItemId: number | null;
   dropLine?: DropLine | null;
   onShowCover?: (track: QueueItemDto['track']) => void;
+  onApplySearchTerm?: (term: string) => void;
 }
 
 export function QueueList({
@@ -22,6 +24,7 @@ export function QueueList({
   currentQueueItemId,
   dropLine = null,
   onShowCover,
+  onApplySearchTerm,
 }: QueueListProps) {
   return (
     <SortableContext
@@ -41,6 +44,7 @@ export function QueueList({
               'queue',
             )}
             onShowCover={onShowCover}
+            onApplySearchTerm={onApplySearchTerm}
           />
         ))}
       </ol>
@@ -53,11 +57,13 @@ function SortableQueueItem({
   current,
   dropLineClassName,
   onShowCover,
+  onApplySearchTerm,
 }: {
   item: QueueItemDto;
   current: boolean;
   dropLineClassName: string;
   onShowCover?: (track: QueueItemDto['track']) => void;
+  onApplySearchTerm?: (term: string) => void;
 }) {
   const { state } = useSession();
   const separation = queueSeparationDisplay(item, state.jobs.separation);
@@ -75,6 +81,12 @@ function SortableQueueItem({
       }}
       className={`${current ? 'current' : ''}${isDragging ? ' dragging' : ''}${dropLineClassName ? ` ${dropLineClassName}` : ''}`.trim()}
       title="Drag to reorder or add to a playlist"
+      onDoubleClick={(event) => {
+        if (isInteractiveTrackTarget(event.target)) {
+          return;
+        }
+        void api.playItem(item.id);
+      }}
       {...attributes}
       {...listeners}
     >
@@ -83,6 +95,7 @@ function SortableQueueItem({
         onPlay={() => void api.playItem(item.id)}
         onRemove={() => void api.removeFromQueue(item.id)}
         onShowCover={onShowCover}
+        onApplySearchTerm={onApplySearchTerm}
         extras={
           <>
             {separation.kind === 'progress' && (

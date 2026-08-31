@@ -3,25 +3,7 @@ import { FiPlay, FiX } from 'react-icons/fi';
 import { TrackDto } from '@karaokej/shared';
 import { formatDuration } from '../format';
 import { CoverArt } from './CoverArt';
-
-interface WorkspaceTrackLabelProps {
-  track: TrackDto;
-  muted?: boolean;
-}
-
-export function WorkspaceTrackLabel({ track, muted = false }: WorkspaceTrackLabelProps) {
-  return (
-    <div className={`workspace-track-label${muted ? ' muted' : ''}`}>
-      {track.artist ? (
-        <>
-          <span className="workspace-track-artist">{track.artist}</span>
-          <span className="workspace-track-sep"> — </span>
-        </>
-      ) : null}
-      <strong>{track.title}</strong>
-    </div>
-  );
-}
+import { TrackMain } from './TrackMain';
 
 interface WorkspaceTrackRowProps {
   track: TrackDto;
@@ -31,6 +13,7 @@ interface WorkspaceTrackRowProps {
   removeTitle?: string;
   removeAriaLabel?: string;
   onShowCover?: (track: TrackDto) => void;
+  onApplySearchTerm?: (term: string) => void;
   extras?: ReactNode;
   labelMuted?: boolean;
 }
@@ -43,6 +26,7 @@ export function WorkspaceTrackRow({
   removeTitle = 'Remove',
   removeAriaLabel = 'Remove',
   onShowCover,
+  onApplySearchTerm,
   extras,
   labelMuted = false,
 }: WorkspaceTrackRowProps) {
@@ -54,7 +38,7 @@ export function WorkspaceTrackRow({
         size={32}
         onClick={onShowCover ? () => onShowCover(track) : undefined}
       />
-      <WorkspaceTrackLabel track={track} muted={labelMuted} />
+      <TrackMain track={track} muted={labelMuted} onApplySearchTerm={onApplySearchTerm} />
       <div className="track-meta">
         {extras}
         <span className="time">{formatDuration(track.durationMs)}</span>

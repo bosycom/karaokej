@@ -32,7 +32,7 @@ import { workspaceCollision } from '../dnd/workspaceCollision';
 import { formatDuration, formatTrackSubtitle } from '../format';
 import { PlaylistPane } from './PlaylistPane';
 import { QueueList } from './QueueList';
-import { WorkspaceTrackLabel } from './WorkspaceTrackRow';
+import { TrackMain } from './TrackMain';
 
 interface WorkspaceDndProps {
   tracks: TrackDto[];
@@ -54,6 +54,7 @@ interface WorkspaceDndProps {
   onPlaylistChanged: (detail: PlaylistDetailDto) => void;
   onPlaylistsRefresh: () => void;
   onShowCover?: (track: TrackDto) => void;
+  onApplySearchTerm?: (term: string) => void;
 }
 
 type ActiveDrag =
@@ -81,6 +82,7 @@ export function WorkspaceDnd({
   onPlaylistChanged,
   onPlaylistsRefresh,
   onShowCover,
+  onApplySearchTerm,
 }: WorkspaceDndProps) {
   const [items, setItems] = useState(queue);
   const [playlistItems, setPlaylistItems] = useState(playlistDetail?.items ?? []);
@@ -346,6 +348,7 @@ export function WorkspaceDnd({
           onPlay={onPlayPlaylist}
           onPlayTrack={onPlayTrack}
           onShowCover={onShowCover}
+          onApplySearchTerm={onApplySearchTerm}
         />
         <QueuePane
           items={items}
@@ -355,17 +358,18 @@ export function WorkspaceDnd({
           onClearQueue={onClearQueue}
           onShuffleQueue={onShuffleQueue}
           onShowCover={onShowCover}
+          onApplySearchTerm={onApplySearchTerm}
         />
       </div>
       <DragOverlay>
         {active?.kind === 'queue' ? (
           <div className={`queue-overlay${active.item.id === currentQueueItemId ? ' current' : ''}`}>
-            <WorkspaceTrackLabel track={active.item.track} />
+            <TrackMain track={active.item.track} />
           </div>
         ) : null}
         {active?.kind === 'playlist-item' ? (
           <div className={`queue-overlay${active.item.available ? '' : ' unavailable'}`}>
-            <WorkspaceTrackLabel track={active.item.track} muted={!active.item.available} />
+            <TrackMain track={active.item.track} muted={!active.item.available} />
           </div>
         ) : null}
         {active?.kind === 'track' ? (
@@ -404,6 +408,7 @@ function QueuePane({
   onClearQueue,
   onShuffleQueue,
   onShowCover,
+  onApplySearchTerm,
 }: {
   items: QueueItemDto[];
   currentQueueItemId: number | null;
@@ -412,6 +417,7 @@ function QueuePane({
   onClearQueue: () => void;
   onShuffleQueue: () => void;
   onShowCover?: (track: TrackDto) => void;
+  onApplySearchTerm?: (term: string) => void;
 }) {
   const { setNodeRef } = useDroppable({ id: QUEUE_DROPPABLE });
   const shuffleEnabled = canShuffleQueue(items, currentQueueItemId);
@@ -460,6 +466,7 @@ function QueuePane({
             currentQueueItemId={currentQueueItemId}
             dropLine={dropLine}
             onShowCover={onShowCover}
+            onApplySearchTerm={onApplySearchTerm}
           />
         )}
       </div>

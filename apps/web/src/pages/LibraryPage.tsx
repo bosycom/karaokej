@@ -814,6 +814,7 @@ export function LibraryPage() {
         onPlaylistsRefresh={() => void loadPlaylists()}
         onPlayTrack={handlePlayTrack}
         onShowCover={setCoverTrack}
+        onApplySearchTerm={applySearch}
         library={
           <section className="library-pane">
             <div className="library-pane-toolbar">

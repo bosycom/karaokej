@@ -1147,6 +1147,12 @@ a.search-miss-btn:hover {
   overflow: auto;
 }
 
+.playlist-items-scroll,
+.queue-items-scroll {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
 .playlist-detail-header {
   flex-shrink: 0;
   display: flex;
@@ -1189,25 +1195,9 @@ a.search-miss-btn:hover {
   opacity: 0.72;
 }
 
-.playlist-item-list li.unavailable .workspace-track-label strong {
+.playlist-item-list li.unavailable .track-main strong,
+.track-main.muted strong {
   color: var(--muted);
-}
-
-.workspace-track-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.workspace-track-label .workspace-track-artist {
-  color: var(--muted);
-  font-size: 0.92rem;
-}
-
-.workspace-track-label strong {
-  font-weight: 700;
 }
 
 .modal-actions-multi {
@@ -1248,6 +1238,11 @@ a.search-miss-btn:hover {
   margin: 0;
 }
 
+.queue-items-scroll .queue-list li,
+.playlist-items-scroll .queue-list li {
+  padding-right: 0.65rem;
+}
+
 .track-list,
 .queue-list {
   list-style: none;
@@ -1283,20 +1278,24 @@ a.search-miss-btn:hover {
   border-bottom: 1px solid #222230;
 }
 
-.track-list strong {
+.track-main strong {
   display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.track-list span {
+.track-main > span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--muted);
   font-size: 0.92rem;
 }
 
 .queue-list li.current {
   background: #1a160c;
-  margin: 0 -1rem;
-  padding-left: 1rem;
-  padding-right: 1rem;
   border-color: var(--gold-deep);
 }
 
@@ -1363,6 +1362,7 @@ a.search-miss-btn:hover {
 .track-main {
   min-width: 0;
   flex: 1;
+  overflow: hidden;
   cursor: grab;
 }
 

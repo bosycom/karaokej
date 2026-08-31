@@ -20,6 +20,7 @@ interface PlaylistPaneProps {
   onPlay: (id: number) => void;
   onPlayTrack: (track: TrackDto) => void;
   onShowCover?: (track: TrackDto) => void;
+  onApplySearchTerm?: (term: string) => void;
 }
 
 export function PlaylistPane({
@@ -36,6 +37,7 @@ export function PlaylistPane({
   onPlay,
   onPlayTrack,
   onShowCover,
+  onApplySearchTerm,
 }: PlaylistPaneProps) {
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
@@ -223,6 +225,7 @@ export function PlaylistPane({
                   onPlayTrack={onPlayTrack}
                   dropLine={dropLine}
                   onShowCover={onShowCover}
+                  onApplySearchTerm={onApplySearchTerm}
                 />
               )}
             </div>
