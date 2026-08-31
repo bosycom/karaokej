@@ -4,6 +4,8 @@ import { FiEdit2, FiPlay, FiPlus, FiTrash2 } from 'react-icons/fi';
 import { PlaylistDetailDto, PlaylistSummaryDto, TrackDto } from '@karaokej/shared';
 import { playlistDetailDropId, playlistDropId } from '../dnd/dragIds';
 import type { DropLine } from '../dnd/dropInsert';
+import { sumQueueItemDurations } from '../duration/listDuration';
+import { formatAccumulatedDuration } from '../format';
 import { PlaylistItemList } from './PlaylistItemList';
 
 interface PlaylistPaneProps {
@@ -21,6 +23,7 @@ interface PlaylistPaneProps {
   onPlayTrack: (track: TrackDto) => void;
   onShowCover?: (track: TrackDto) => void;
   onApplySearchTerm?: (term: string) => void;
+  durationByTrackId?: ReadonlyMap<number, number>;
 }
 
 export function PlaylistPane({
@@ -38,6 +41,7 @@ export function PlaylistPane({
   onPlayTrack,
   onShowCover,
   onApplySearchTerm,
+  durationByTrackId,
 }: PlaylistPaneProps) {
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
@@ -80,10 +84,22 @@ export function PlaylistPane({
 
   const selected = summaries.find((entry) => entry.id === selectedId) ?? null;
 
+  const detailDuration = useMemo(() => {
+    if (!detail || detail.items.length === 0) {
+      return null;
+    }
+    return formatAccumulatedDuration(
+      sumQueueItemDurations(detail.items, durationByTrackId),
+    );
+  }, [detail, durationByTrackId]);
+
   return (
     <aside className="playlist-pane">
       <div className="playlist-pane-toolbar">
-        <h2>Playlists</h2>
+        <h2>
+          Playlists
+          <span className="playlist-count">{summaries.length}</span>
+        </h2>
         <button
           type="button"
           className="icon-btn"
@@ -177,7 +193,19 @@ export function PlaylistPane({
                     autoFocus
                   />
                 ) : (
-                  <span className="playlist-name-button selected-name">{selected.name}</span>
+                  <span className="playlist-name-button selected-name">
+                    {selected.name}
+                    <PlaylistMeta
+                      count={selected.itemCount}
+                      durationLabel={
+                        detailDuration ??
+                        formatAccumulatedDuration({
+                          totalMs: selected.totalDurationMs,
+                          unknownCount: selected.unknownDurationCount,
+                        })
+                      }
+                    />
+                  </span>
                 )}
               </div>
               <div className="playlist-detail-actions">
@@ -236,6 +264,38 @@ export function PlaylistPane({
   );
 }
 
+function PlaylistMeta({
+  count,
+  durationLabel,
+}: {
+  count: number;
+  durationLabel: string | null;
+}) {
+  return (
+    <span className="playlist-meta">
+      <span className="playlist-count">{count}</span>
+      {durationLabel && (
+        <>
+          <span className="playlist-meta-separator">·</span>
+          <span className="playlist-duration">{durationLabel}</span>
+        </>
+      )}
+    </span>
+  );
+}
+
+function formatPlaylistTooltip(
+  name: string,
+  count: number,
+  durationLabel: string | null,
+): string {
+  const songLabel = count === 1 ? 'song' : 'songs';
+  if (durationLabel) {
+    return `${name} (${count} ${songLabel}, ${durationLabel}). Double-click to rename.`;
+  }
+  return `${name} (${count} ${songLabel}). Double-click to rename.`;
+}
+
 function PlaylistNameRow({
   playlist,
   selected,
@@ -259,6 +319,14 @@ function PlaylistNameRow({
   onCommitRename: () => void;
   onCancelRename: () => void;
 }) {
+  const durationLabel =
+    playlist.itemCount > 0
+      ? formatAccumulatedDuration({
+          totalMs: playlist.totalDurationMs,
+          unknownCount: playlist.unknownDurationCount,
+        })
+      : null;
+
   return (
     <li className={`${selected ? 'selected' : ''}${dropActive ? ' drop-active' : ''}`}>
       <PlaylistDropTarget playlistId={playlist.id} dropActive={dropActive}>
@@ -286,10 +354,10 @@ function PlaylistNameRow({
               event.preventDefault();
               onStartRename();
             }}
-            title={`${playlist.name} (${playlist.itemCount} songs). Double-click to rename.`}
+            title={formatPlaylistTooltip(playlist.name, playlist.itemCount, durationLabel)}
           >
             <span>{playlist.name}</span>
-            <span className="playlist-count">{playlist.itemCount}</span>
+            <PlaylistMeta count={playlist.itemCount} durationLabel={durationLabel} />
           </button>
         )}
       </PlaylistDropTarget>

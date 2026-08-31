@@ -3,7 +3,7 @@ import { KaraokeMode, KARAOKE_MODES } from '@karaokej/shared';
 const MODE_LABELS: Record<KaraokeMode, string> = {
   off: 'Off',
   'vocal-reduction': 'Vocal Reduction',
-  ai: 'AI Vocal Removal',
+  ai: 'AI Vocal Removal (Create AI stem)',
 };
 
 interface KaraokeModeControlProps {
