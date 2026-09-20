@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { FiPause, FiPlay, FiSkipForward } from 'react-icons/fi';
+import { FiPause, FiPlay, FiSkipForward, FiVolume1, FiVolume2, FiVolumeX } from 'react-icons/fi';
 import { LuBlend } from 'react-icons/lu';
 import { TrackDto } from '@karaokej/shared';
 import { api } from '../api';
@@ -29,8 +29,12 @@ export function PlayerBar({
   const [fetchingLyrics, setFetchingLyrics] = useState(false);
   const [lyricSearchTrack, setLyricSearchTrack] = useState<TrackDto | null>(null);
   const [localCoverTrack, setLocalCoverTrack] = useState<TrackDto | null>(null);
+  const [volumeOpen, setVolumeOpen] = useState(false);
   const pointerDownRef = useRef(false);
+  const volumeRef = useRef<HTMLDivElement>(null);
+  const volumeInputRef = useRef<HTMLInputElement>(null);
   const track = state.playback.currentTrack;
+  const volume = state.playback.volume;
 
   useEffect(() => {
     setFetchingLyrics(false);
@@ -41,6 +45,33 @@ export function PlayerBar({
   useEffect(() => {
     setScrub(null);
   }, [state.playback.seekSeq]);
+
+  useEffect(() => {
+    if (!volumeOpen) {
+      return;
+    }
+
+    volumeInputRef.current?.focus();
+
+    const onPointerDown = (event: MouseEvent) => {
+      if (!volumeRef.current?.contains(event.target as Node)) {
+        setVolumeOpen(false);
+      }
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setVolumeOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [volumeOpen]);
 
   const trackDurationMs = track?.durationMs ?? 0;
   const durationLabelMs = seekBarDurationLabelMs({
@@ -61,6 +92,7 @@ export function PlayerBar({
     : 'Crossfade off';
   const canFetch = track != null && track.lyricStatus !== 'present';
   const showCover = onShowCover ?? setLocalCoverTrack;
+  const VolumeIcon = volume <= 0 ? FiVolumeX : volume < 0.5 ? FiVolume1 : FiVolume2;
 
   const commitSeek = (value: number) => {
     setScrub(null);
@@ -191,17 +223,35 @@ export function PlayerBar({
             {formatDuration(displayed)} / {formatDuration(durationLabelMs)}
           </span>
         )}
-        <label className="volume">
-          Vol
-          <input
-            type="range"
-            min={0}
-            max={1}
-            step={0.01}
-            value={state.playback.volume}
-            onChange={(event) => void api.volume(Number(event.target.value))}
-          />
-        </label>
+        <div
+          className={`volume${volumeOpen ? ' is-open' : ''}`}
+          ref={volumeRef}
+        >
+          <button
+            type="button"
+            className="icon-btn"
+            title="Volume"
+            aria-label="Volume"
+            aria-expanded={volumeOpen}
+            aria-controls="player-volume-slider"
+            onClick={() => setVolumeOpen((open) => !open)}
+          >
+            <VolumeIcon aria-hidden />
+          </button>
+          {volumeOpen ? (
+            <input
+              id="player-volume-slider"
+              ref={volumeInputRef}
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={volume}
+              onChange={(event) => void api.volume(Number(event.target.value))}
+              aria-label="Volume level"
+            />
+          ) : null}
+        </div>
       </div>
       {!isPlayer && !compact && (
         <p className="player-hint">This window is following playback. Audio is on another device.</p>

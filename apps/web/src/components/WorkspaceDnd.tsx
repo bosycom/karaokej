@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useRef, useState } from 'react';
+import { ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import {
   DndContext,
   DragEndEvent,
@@ -29,10 +29,23 @@ import {
   type DropLine,
 } from '../dnd/dropInsert';
 import { workspaceCollision } from '../dnd/workspaceCollision';
-import { formatDuration, formatTrackSubtitle } from '../format';
+import { formatAccumulatedDuration, formatDuration, formatTrackSubtitle } from '../format';
+import {
+  combineDurationTotals,
+  queueCurrentLeftoverMs,
+  queueUpcomingDurations,
+  sumQueueItemDurations,
+} from '../duration/listDuration';
+import { useSession } from '../session/SessionProvider';
 import { PlaylistPane } from './PlaylistPane';
 import { QueueList } from './QueueList';
 import { TrackMain } from './TrackMain';
+import {
+  PaneAccordionTrigger,
+  paneAccordionClass,
+  useWorkspaceAccordion,
+  WorkspaceAccordionProvider,
+} from './WorkspaceAccordion';
 
 interface WorkspaceDndProps {
   tracks: TrackDto[];
@@ -55,6 +68,8 @@ interface WorkspaceDndProps {
   onPlaylistsRefresh: () => void;
   onShowCover?: (track: TrackDto) => void;
   onApplySearchTerm?: (term: string) => void;
+  revealQueueItemId?: number | null;
+  onRevealQueueItem?: () => void;
 }
 
 type ActiveDrag =
@@ -83,6 +98,8 @@ export function WorkspaceDnd({
   onPlaylistsRefresh,
   onShowCover,
   onApplySearchTerm,
+  revealQueueItemId = null,
+  onRevealQueueItem,
 }: WorkspaceDndProps) {
   const [items, setItems] = useState(queue);
   const [playlistItems, setPlaylistItems] = useState(playlistDetail?.items ?? []);
@@ -323,6 +340,24 @@ export function WorkspaceDnd({
       ? { ...playlistDetail, items: playlistItems }
       : playlistDetail;
 
+  const { state, liveAudioDurationMs } = useSession();
+  const durationByTrackId = useMemo(() => {
+    const map = new Map<number, number>();
+    for (const item of queue) {
+      if (item.track.durationMs != null && item.track.durationMs > 0) {
+        map.set(item.track.id, item.track.durationMs);
+      }
+    }
+    const current = state.playback.currentTrack;
+    if (current != null) {
+      const resolved = Math.max(current.durationMs ?? 0, liveAudioDurationMs);
+      if (resolved > 0) {
+        map.set(current.id, resolved);
+      }
+    }
+    return map;
+  }, [queue, state.playback.currentTrack, liveAudioDurationMs]);
+
   return (
     <DndContext
       sensors={sensors}
@@ -332,35 +367,41 @@ export function WorkspaceDnd({
       onDragEnd={onDragEnd}
       onDragCancel={finishDrag}
     >
-      <div className="workspace workspace-three">
-        {library}
-        <PlaylistPane
-          summaries={playlistSummaries}
-          selectedId={selectedPlaylistId}
-          detail={detailForPane}
-          dropActivePlaylistId={dropActivePlaylistId}
-          dropLine={dropLine?.list === 'playlist' ? dropLine : null}
-          onSelect={onSelectPlaylist}
-          onCreate={onCreatePlaylist}
-          onRename={onRenamePlaylist}
-          onDelete={onDeletePlaylist}
-          onRemoveItem={onRemovePlaylistItem}
-          onPlay={onPlayPlaylist}
-          onPlayTrack={onPlayTrack}
-          onShowCover={onShowCover}
-          onApplySearchTerm={onApplySearchTerm}
-        />
-        <QueuePane
-          items={items}
-          currentQueueItemId={currentQueueItemId}
-          dropActive={dropActive}
-          dropLine={dropLine?.list === 'queue' ? dropLine : null}
-          onClearQueue={onClearQueue}
-          onShuffleQueue={onShuffleQueue}
-          onShowCover={onShowCover}
-          onApplySearchTerm={onApplySearchTerm}
-        />
-      </div>
+      <WorkspaceAccordionProvider>
+        <div className="workspace workspace-three">
+          {library}
+          <PlaylistPane
+            summaries={playlistSummaries}
+            selectedId={selectedPlaylistId}
+            detail={detailForPane}
+            dropActivePlaylistId={dropActivePlaylistId}
+            dropLine={dropLine?.list === 'playlist' ? dropLine : null}
+            onSelect={onSelectPlaylist}
+            onCreate={onCreatePlaylist}
+            onRename={onRenamePlaylist}
+            onDelete={onDeletePlaylist}
+            onRemoveItem={onRemovePlaylistItem}
+            onPlay={onPlayPlaylist}
+            onPlayTrack={onPlayTrack}
+            onShowCover={onShowCover}
+            onApplySearchTerm={onApplySearchTerm}
+            durationByTrackId={durationByTrackId}
+          />
+          <QueuePane
+            items={items}
+            currentQueueItemId={currentQueueItemId}
+            durationByTrackId={durationByTrackId}
+            dropActive={dropActive}
+            dropLine={dropLine?.list === 'queue' ? dropLine : null}
+            onClearQueue={onClearQueue}
+            onShuffleQueue={onShuffleQueue}
+            onShowCover={onShowCover}
+            onApplySearchTerm={onApplySearchTerm}
+            revealQueueItemId={revealQueueItemId}
+            onRevealQueueItem={onRevealQueueItem}
+          />
+        </div>
+      </WorkspaceAccordionProvider>
       <DragOverlay>
         {active?.kind === 'queue' ? (
           <div className={`queue-overlay${active.item.id === currentQueueItemId ? ' current' : ''}`}>
@@ -403,35 +444,94 @@ function canShuffleQueue(items: QueueItemDto[], currentQueueItemId: number | nul
 function QueuePane({
   items,
   currentQueueItemId,
+  durationByTrackId,
   dropActive,
   dropLine,
   onClearQueue,
   onShuffleQueue,
   onShowCover,
   onApplySearchTerm,
+  revealQueueItemId,
+  onRevealQueueItem,
 }: {
   items: QueueItemDto[];
   currentQueueItemId: number | null;
+  durationByTrackId: ReadonlyMap<number, number>;
   dropActive: boolean;
   dropLine: DropLine | null;
   onClearQueue: () => void;
   onShuffleQueue: () => void;
   onShowCover?: (track: TrackDto) => void;
   onApplySearchTerm?: (term: string) => void;
+  revealQueueItemId?: number | null;
+  onRevealQueueItem?: () => void;
 }) {
   const { setNodeRef } = useDroppable({ id: QUEUE_DROPPABLE });
+  const { positionMs, liveAudioDurationMs } = useSession();
+  const accordion = useWorkspaceAccordion();
   const shuffleEnabled = canShuffleQueue(items, currentQueueItemId);
   const shuffleLabel = currentQueueItemId
     ? 'Shuffle upcoming songs'
     : 'Shuffle queue';
 
+  const totalDuration = useMemo(
+    () => sumQueueItemDurations(items, durationByTrackId),
+    [items, durationByTrackId],
+  );
+  const upcomingDuration = useMemo(
+    () => queueUpcomingDurations(items, currentQueueItemId, durationByTrackId),
+    [items, currentQueueItemId, durationByTrackId],
+  );
+
+  const currentItem =
+    currentQueueItemId == null
+      ? null
+      : (items.find((item) => item.id === currentQueueItemId) ?? null);
+  const currentDurationMs =
+    currentItem == null
+      ? 0
+      : Math.max(
+          durationByTrackId.get(currentItem.track.id) ??
+            currentItem.track.durationMs ??
+            0,
+          liveAudioDurationMs,
+        );
+  const currentLeftover =
+    currentItem == null
+      ? { totalMs: 0, unknownCount: 0 }
+      : currentDurationMs > 0
+        ? {
+            totalMs: queueCurrentLeftoverMs(currentDurationMs, positionMs),
+            unknownCount: 0,
+          }
+        : { totalMs: 0, unknownCount: 1 };
+  const remainingDuration = combineDurationTotals(currentLeftover, upcomingDuration);
+
+  const totalLabel =
+    items.length > 0 ? formatAccumulatedDuration(totalDuration) : null;
+  const remainingLabel =
+    currentQueueItemId != null && items.length > 0
+      ? formatAccumulatedDuration(remainingDuration)
+      : null;
+
   return (
     <aside
       ref={setNodeRef}
-      className={`queue-pane${dropActive ? ' drop-active' : ''}`}
+      className={`queue-pane${dropActive ? ' drop-active' : ''}${paneAccordionClass('queue', accordion)}`}
     >
       <div className="queue-pane-toolbar">
-        <h2>Queue</h2>
+        <PaneAccordionTrigger pane="queue">
+          <h2>
+            Queue
+            <span className="queue-count">{items.length}</span>
+            {totalLabel && <span className="queue-duration">{totalLabel}</span>}
+            {remainingLabel && (
+              <span className="queue-duration queue-duration-remaining">
+                {remainingLabel} left
+              </span>
+            )}
+          </h2>
+        </PaneAccordionTrigger>
         <div className="queue-pane-toolbar-actions">
           <button
             type="button"
@@ -467,6 +567,8 @@ function QueuePane({
             dropLine={dropLine}
             onShowCover={onShowCover}
             onApplySearchTerm={onApplySearchTerm}
+            revealQueueItemId={revealQueueItemId}
+            onRevealQueueItem={onRevealQueueItem}
           />
         )}
       </div>

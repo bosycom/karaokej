@@ -1,11 +1,10 @@
-import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { FormEvent, ReactNode, useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   FiChevronLeft,
   FiChevronRight,
   FiChevronsLeft,
   FiChevronsRight,
-  FiSettings,
 } from 'react-icons/fi';
 import { LuDices, LuHistory } from 'react-icons/lu';
 import {
@@ -27,12 +26,10 @@ import {
 import { ClearQueueModal } from '../components/ClearQueueModal';
 import { CoverArtModal } from '../components/CoverArtModal';
 import { Modal } from '../components/Modal';
-import { KaraokeModeControl } from '../components/KaraokeModeControl';
+import { AppTopbar } from '../components/AppTopbar';
 import { PlayerBar } from '../components/PlayerBar';
-import { UiScaleControl } from '../components/UiScaleControl';
 import { PlayPlaylistModal } from '../components/PlayPlaylistModal';
 import { PlayTrackModal } from '../components/PlayTrackModal';
-import { ProcessingText } from '../components/ProcessingText';
 import { ScanModal } from '../components/ScanModal';
 import { ScanIssuesModal } from '../components/ScanIssuesModal';
 import { LyricSearchModal } from '../components/LyricSearchModal';
@@ -40,16 +37,19 @@ import { TrackMetadataModal } from '../components/TrackMetadataModal';
 import { SearchHistoryModal } from '../components/SearchHistoryModal';
 import { SearchMissFallback } from '../components/SearchMissFallback';
 import { WorkspaceDnd } from '../components/WorkspaceDnd';
+import {
+  PaneAccordionTrigger,
+  paneAccordionClass,
+  useWorkspaceAccordion,
+} from '../components/WorkspaceAccordion';
 import { addSearchHistoryTerm, clearSearchHistory, readSearchHistory } from '../searchHistory';
 import { MODAL_IDS } from '../modals/dismissedModals';
 import { useConfirmModal } from '../modals/useConfirmModal';
-import { pageWindow } from '../pagination/pageWindow';
-import { useKaraoke } from '../session/useKaraoke';
 import { useSession } from '../session/SessionProvider';
 
 export function LibraryPage() {
-  const { state, connected, isPlayer, clientId } = useSession();
-  const { karaoke, setMode } = useKaraoke();
+  const { state, isPlayer, clientId } = useSession();
+  const [searchParams, setSearchParams] = useSearchParams();
   const confirmModal = useConfirmModal();
   const [query, setQuery] = useState('');
   const [inputValue, setInputValue] = useState('');
@@ -74,6 +74,10 @@ export function LibraryPage() {
   const [playlistDetail, setPlaylistDetail] = useState<PlaylistDetailDto | null>(null);
   const [playModalPlaylistId, setPlayModalPlaylistId] = useState<number | null>(null);
   const [playModalTrack, setPlayModalTrack] = useState<TrackDto | null>(null);
+  const [revealQueueItemId, setRevealQueueItemId] = useState<number | null>(null);
+  const clearRevealQueueItem = useCallback(() => {
+    setRevealQueueItemId(null);
+  }, []);
   const [clearQueueModalOpen, setClearQueueModalOpen] = useState(false);
   const [scanIssues, setScanIssues] = useState<ScanIssueDto[]>([]);
   const [scanIssuesOpen, setScanIssuesOpen] = useState(false);
@@ -84,6 +88,16 @@ export function LibraryPage() {
   const [coverTrack, setCoverTrack] = useState<TrackDto | null>(null);
   const [scanOpen, setScanOpen] = useState(false);
   const limit = 15;
+
+  useEffect(() => {
+    if (searchParams.get('scan') !== '1') {
+      return;
+    }
+    setScanOpen(true);
+    const next = new URLSearchParams(searchParams);
+    next.delete('scan');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const loadTracks = async (
     q: string,
@@ -543,7 +557,8 @@ export function LibraryPage() {
     setPlayModalTrack(null);
     void (async () => {
       try {
-        await api.playTrackNow(trackId);
+        const added = await api.playTrackNow(trackId);
+        setRevealQueueItemId(added?.id ?? null);
         setError(null);
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
@@ -593,7 +608,6 @@ export function LibraryPage() {
   const hasQueueBeforeCurrent = currentQueueIndex > 0;
 
   const pages = Math.max(1, Math.ceil(total / limit));
-  const visiblePages = pageWindow(page, pages);
   const modalCopy =
     confirmModal.dismissId === MODAL_IDS.scanHelp
       ? {
@@ -705,58 +719,8 @@ export function LibraryPage() {
               }
             : null;
 
-  const libraryJobRunning =
-    state.jobs.scan.running ||
-    state.jobs.lyricsFetch.running ||
-    state.jobs.covers.running;
-
   return (
     <div className="app-shell">
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">I can&apos;t sing, but it&apos;s going to be...</p>
-          <h1>
-            <span className="brand-kara">Kara</span>okej
-          </h1>
-        </div>
-        <div className="topbar-actions">
-          <KaraokeModeControl
-            mode={karaoke.mode}
-            compact
-            disabled={!state.playback.currentTrack}
-            demucsAvailable={status?.demucsAvailable ?? false}
-            onChange={setMode}
-          />
-          <span className={`pill ${connected ? 'ok' : 'warn'}`}>
-            {connected ? 'Live' : <ProcessingText>Reconnecting</ProcessingText>}
-          </span>
-          <span className={`pill ${isPlayer ? 'ok' : 'muted'}`}>
-            {isPlayer ? 'This device plays audio' : 'Follow only'}
-          </span>
-          {!isPlayer && (
-            <button type="button" onClick={() => void api.claim(clientId)}>
-              Play audio here
-            </button>
-          )}
-          <UiScaleControl />
-          <Link className="topbar-link icon-btn" to="/settings" title="Settings" aria-label="Settings">
-            <FiSettings aria-hidden />
-          </Link>
-          <button
-            type="button"
-            className={libraryJobRunning ? 'scan-btn-busy' : undefined}
-            aria-expanded={scanOpen}
-            aria-haspopup="dialog"
-            onClick={() => setScanOpen(true)}
-          >
-            Scan
-          </button>
-          <Link className="karaoke-link" to="/karaoke">
-            Open Karaoke
-          </Link>
-        </div>
-      </header>
-
       <section className="toolbar">
         <form className="search" onSubmit={onSearch}>
           <input
@@ -791,6 +755,29 @@ export function LibraryPage() {
             Reset
           </button>
         </form>
+        <AppTopbar
+          eyebrow="I can't sing, but it's going to be..."
+          title={
+            <>
+              <span className="brand-kara">Kara</span>okej
+            </>
+          }
+          scanOpen={scanOpen}
+          onScan={() => setScanOpen(true)}
+          extras={
+            isPlayer ? (
+              <span className="pill ok toolbar-player">This device plays audio</span>
+            ) : (
+              <button
+                type="button"
+                className="toolbar-player"
+                onClick={() => void api.claim(clientId)}
+              >
+                Play audio here
+              </button>
+            )
+          }
+        />
       </section>
 
       {error && <p className="error-banner">{error}</p>}
@@ -815,11 +802,10 @@ export function LibraryPage() {
         onPlayTrack={handlePlayTrack}
         onShowCover={setCoverTrack}
         onApplySearchTerm={applySearch}
+        revealQueueItemId={revealQueueItemId}
+        onRevealQueueItem={clearRevealQueueItem}
         library={
-          <section className="library-pane">
-            <div className="library-pane-toolbar">
-              <h2>Explorer</h2>
-            </div>
+          <LibraryExplorerPane>
             <div className="library-pane-scroll">
               {tracks.length === 0 && !query.trim() ? (
                 <p className="empty">No songs match. Scan the library if it is empty.</p>
@@ -881,19 +867,21 @@ export function LibraryPage() {
               >
                 <FiChevronLeft aria-hidden />
               </button>
-              <div className="pager-pages">
-                {visiblePages.map((p) =>
-                  p === page ? (
-                    <span key={p} className="pager-current" aria-current="page">
-                      {p}
-                    </span>
-                  ) : (
-                    <button key={p} type="button" className="pager-page" onClick={() => setPage(p)}>
-                      {p}
-                    </button>
-                  ),
-                )}
-              </div>
+              <label className="pager-select">
+                <span className="pager-select-label">Page</span>
+                <select
+                  value={Math.min(page, Math.max(pages, 1))}
+                  disabled={pages <= 1}
+                  aria-label={`Page ${page} of ${pages}`}
+                  onChange={(event) => setPage(Number(event.target.value))}
+                >
+                  {Array.from({ length: Math.max(pages, 1) }, (_, i) => i + 1).map((p) => (
+                    <option key={p} value={p}>
+                      {p} / {Math.max(pages, 1)}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <button
                 type="button"
                 className="icon-btn"
@@ -919,7 +907,7 @@ export function LibraryPage() {
               </span>
               </div>
             </div>
-          </section>
+          </LibraryExplorerPane>
         }
       />
 
@@ -1080,5 +1068,19 @@ export function LibraryPage() {
 
       <PlayerBar onShowCover={setCoverTrack} />
     </div>
+  );
+}
+
+function LibraryExplorerPane({ children }: { children: ReactNode }) {
+  const accordion = useWorkspaceAccordion();
+  return (
+    <section className={`library-pane${paneAccordionClass('library', accordion)}`}>
+      <div className="library-pane-toolbar">
+        <PaneAccordionTrigger pane="library">
+          <h2>Explorer</h2>
+        </PaneAccordionTrigger>
+      </div>
+      {children}
+    </section>
   );
 }

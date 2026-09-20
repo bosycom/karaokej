@@ -7,6 +7,11 @@ import type { DropLine } from '../dnd/dropInsert';
 import { sumQueueItemDurations } from '../duration/listDuration';
 import { formatAccumulatedDuration } from '../format';
 import { PlaylistItemList } from './PlaylistItemList';
+import {
+  PaneAccordionTrigger,
+  paneAccordionClass,
+  useWorkspaceAccordion,
+} from './WorkspaceAccordion';
 
 interface PlaylistPaneProps {
   summaries: PlaylistSummaryDto[];
@@ -83,6 +88,7 @@ export function PlaylistPane({
   };
 
   const selected = summaries.find((entry) => entry.id === selectedId) ?? null;
+  const accordion = useWorkspaceAccordion();
 
   const detailDuration = useMemo(() => {
     if (!detail || detail.items.length === 0) {
@@ -94,12 +100,14 @@ export function PlaylistPane({
   }, [detail, durationByTrackId]);
 
   return (
-    <aside className="playlist-pane">
+    <aside className={`playlist-pane${paneAccordionClass('playlists', accordion)}`}>
       <div className="playlist-pane-toolbar">
-        <h2>
-          Playlists
-          <span className="playlist-count">{summaries.length}</span>
-        </h2>
+        <PaneAccordionTrigger pane="playlists">
+          <h2>
+            Playlists
+            <span className="playlist-count">{summaries.length}</span>
+          </h2>
+        </PaneAccordionTrigger>
         <button
           type="button"
           className="icon-btn"
