@@ -11,3 +11,5 @@ packages/shared/dist/
 temp/
 .cursor/
 docs/
+deploy-windows/
+deploy-windows.zip

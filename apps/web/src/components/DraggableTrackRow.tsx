@@ -1,9 +1,10 @@
 import { useDraggable } from '@dnd-kit/core';
-import { FiPlay, FiTag } from 'react-icons/fi';
+import { FiPause, FiPlay, FiTag } from 'react-icons/fi';
 import { TrackDto } from '@karaokej/shared';
 import { api } from '../api';
 import { trackDragId } from '../dnd/dragIds';
 import { formatDuration, karaokeStemBadge } from '../format';
+import { useSession } from '../session/SessionProvider';
 import { CoverArt } from './CoverArt';
 import { IconMenu } from './IconMenu';
 import { LyricStatusBadge } from './LyricStatusBadge';
@@ -36,12 +37,16 @@ export function DraggableTrackRow({
   onDeleteFile,
   onShowCover,
 }: DraggableTrackRowProps) {
+  const { state } = useSession();
   const { listeners, setNodeRef, isDragging } = useDraggable({
     id: trackDragId(track.id),
     data: { kind: 'track', track },
   });
   const stemBadge = karaokeStemBadge(track.karaokeStemStatus);
   const tagsPending = track.metadataStatus === 'pending';
+  const isCurrentPlaying =
+    state.playback.status === 'playing' &&
+    state.playback.currentTrack?.id === track.id;
 
   const copyFilePath = async () => {
     const { path } = await api.trackPath(track.id);
@@ -100,11 +105,17 @@ export function DraggableTrackRow({
         <button
           type="button"
           className="icon-btn"
-          title={`Play ${track.title}`}
-          aria-label={`Play ${track.title}`}
-          onClick={() => onPlay(track)}
+          title={isCurrentPlaying ? `Pause ${track.title}` : `Play ${track.title}`}
+          aria-label={isCurrentPlaying ? `Pause ${track.title}` : `Play ${track.title}`}
+          onClick={() => {
+            if (isCurrentPlaying) {
+              void api.pause();
+              return;
+            }
+            onPlay(track);
+          }}
         >
-          <FiPlay aria-hidden />
+          {isCurrentPlaying ? <FiPause aria-hidden /> : <FiPlay aria-hidden />}
         </button>
         <IconMenu
           ariaLabel={`Actions for ${track.title}`}

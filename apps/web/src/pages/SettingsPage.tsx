@@ -88,15 +88,17 @@ export function SettingsPage() {
 
   return (
     <div className="app-shell settings-shell">
-      <AppTopbar
-        eyebrow="Perhaps I can't sing well, but it is..."
-        title="Settings"
-        trailing={
-          <Link className="topbar-link" to="/">
-            Back to library
-          </Link>
-        }
-      />
+      <header className="topbar topbar--menu-only">
+        <AppTopbar
+          eyebrow="Perhaps I can't sing well, but it is..."
+          title="Settings"
+          trailing={
+            <Link className="topbar-link" to="/">
+              Back to library
+            </Link>
+          }
+        />
+      </header>
 
       <main className="settings-page">
         <section className="settings-section">

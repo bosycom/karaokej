@@ -1,5 +1,5 @@
 import { basename, dirname, isAbsolute, resolve } from 'node:path';
-import { nestingRelative } from './scan-root';
+import { nestingRelative, relativeInsideNormalized } from './scan-root';
 
 export interface LibraryPathLayout {
   roots: string[];
@@ -134,7 +134,7 @@ export function cataloguePathBelongsToRoot(
 
 function resolveUnderRoot(root: string, relativePath: string): string | null {
   const absolute = resolve(root, relativePath);
-  if (absolute !== root && !absolute.startsWith(root + '/')) {
+  if (relativeInsideNormalized(root, absolute) === null) {
     return null;
   }
   return absolute;

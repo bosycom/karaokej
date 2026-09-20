@@ -1,13 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { existsSync, mkdirSync } from 'node:fs';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { dirname, isAbsolute, resolve } from 'node:path';
 import {
   buildLibraryPathLayout,
   parseLibraryPathEntries,
   resolveUnderLibraries,
   type LibraryPathLayout,
 } from '../library/library-paths';
+import { findCommandOnPath } from './path-lookup';
 
 function clampInt(value: string | undefined, fallback: number, min: number, max: number): number {
   const parsed = Number.parseInt(value ?? '', 10);
@@ -180,21 +181,7 @@ export class AppConfigService {
   }
 
   isDemucsAvailable(): boolean {
-    const configured = this.demucsPath;
-    if (configured.includes('/') || configured.includes('\\')) {
-      return existsSync(configured);
-    }
-    const pathEnv = process.env.PATH ?? '';
-    for (const dir of pathEnv.split(':')) {
-      if (!dir) {
-        continue;
-      }
-      const candidate = join(dir, configured);
-      if (existsSync(candidate)) {
-        return true;
-      }
-    }
-    return false;
+    return this.resolveDemucsExecutable() !== null;
   }
 
   resolveDemucsExecutable(): string | null {
@@ -202,17 +189,7 @@ export class AppConfigService {
     if (configured.includes('/') || configured.includes('\\')) {
       return existsSync(configured) ? configured : null;
     }
-    const pathEnv = process.env.PATH ?? '';
-    for (const dir of pathEnv.split(':')) {
-      if (!dir) {
-        continue;
-      }
-      const candidate = join(dir, configured);
-      if (existsSync(candidate)) {
-        return candidate;
-      }
-    }
-    return null;
+    return findCommandOnPath(configured);
   }
 
   get ytdlpAudioFormat(): string {

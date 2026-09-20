@@ -2,6 +2,10 @@ import {
   AppSettingsDto,
   ArtistBioChooseDto,
   ArtistBioDto,
+  DEFAULT_RATING_BLUE,
+  DEFAULT_RATING_GOLD,
+  DEFAULT_RATING_RASPBERRY,
+  DEFAULT_RATING_SILVER,
   KaraokeMode,
   KaraokeSettingsDto,
   KaraokeStateDto,
@@ -157,18 +161,19 @@ export const api = {
         ...(beforeId != null ? { beforeId } : {}),
       }),
     }),
-  playTrackNow: async (trackId: number) => {
+  playTrackNow: async (trackId: number): Promise<QueueItemDto | null> => {
     const queue = await request<QueueItemDto[]>('/api/queue', {
       method: 'POST',
       body: JSON.stringify({ trackId }),
     });
-    const added = queue.at(-1);
+    const added = queue.at(-1) ?? null;
     if (added) {
       await request('/api/playback/play-item', {
         method: 'POST',
         body: JSON.stringify({ queueItemId: added.id }),
       });
     }
+    return added;
   },
   removeFromQueue: (id: number) =>
     request(`/api/queue/${id}`, { method: 'DELETE' }),
@@ -365,6 +370,10 @@ export const emptySession: SessionStateDto = {
     removePlayedFromQueue: false,
     crossfadeSeconds: 0,
     crossfadePrefSeconds: 5,
+    ratingGold: DEFAULT_RATING_GOLD,
+    ratingSilver: DEFAULT_RATING_SILVER,
+    ratingBlue: DEFAULT_RATING_BLUE,
+    ratingRaspberry: DEFAULT_RATING_RASPBERRY,
   },
   karaoke: defaultKaraokeState(),
 };

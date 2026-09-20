@@ -34,6 +34,16 @@ npm start
 
 Then open `http://<host>:3000`.
 
+## Windows package
+
+From this machine, build a copy-ready folder (portable Node, prebuilt app, existing SQLite catalogue):
+
+```bash
+npm run pack:windows
+```
+
+Copy `deploy-windows/` (or `deploy-windows.zip`) to the Windows PC. Map the music share, then run `setup.ps1` and `start.ps1`. See `scripts/windows/README.md` (copied into the package as `README.md`).
+
 ## Dependencies
 
 - **Node.js 22+** — runtime; the API uses the built-in `node:sqlite` driver

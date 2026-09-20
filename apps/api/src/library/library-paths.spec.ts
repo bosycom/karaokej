@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { relativeInsideNormalized } from './scan-root';
 import {
   assignLibraryKeys,
   buildLibraryPathLayout,
@@ -78,6 +79,22 @@ describe('stripCataloguePath', () => {
 
   it('returns null when prefix does not match', () => {
     expect(stripCataloguePath('Music', 'Karaoke/song.mp3')).toBeNull();
+  });
+});
+
+describe('relativeInsideNormalized', () => {
+  it('treats Windows backslash roots as containing their children', () => {
+    expect(
+      relativeInsideNormalized('Z:\\Music', 'Z:\\Music\\Artist\\song.mp3'),
+    ).toBe('Artist/song.mp3');
+  });
+
+  it('rejects a sibling folder that only shares a prefix string', () => {
+    expect(relativeInsideNormalized('Z:\\Music', 'Z:\\MusicExtra\\song.mp3')).toBeNull();
+  });
+
+  it('treats the root itself as inside', () => {
+    expect(relativeInsideNormalized('Z:\\Music\\', 'Z:/Music')).toBe('');
   });
 });
 

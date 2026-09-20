@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState, type MutableRefObject } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -17,6 +18,8 @@ interface QueueListProps {
   dropLine?: DropLine | null;
   onShowCover?: (track: QueueItemDto['track']) => void;
   onApplySearchTerm?: (term: string) => void;
+  revealQueueItemId?: number | null;
+  onRevealQueueItem?: () => void;
 }
 
 export function QueueList({
@@ -25,7 +28,40 @@ export function QueueList({
   dropLine = null,
   onShowCover,
   onApplySearchTerm,
+  revealQueueItemId = null,
+  onRevealQueueItem,
 }: QueueListProps) {
+  const itemRefs = useRef(new Map<number, HTMLLIElement>());
+  const [flashItemId, setFlashItemId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (revealQueueItemId == null) {
+      return;
+    }
+    if (!items.some((item) => item.id === revealQueueItemId)) {
+      return;
+    }
+    const node = itemRefs.current.get(revealQueueItemId);
+    if (!node) {
+      return;
+    }
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    node.scrollIntoView({
+      block: 'nearest',
+      behavior: reduceMotion ? 'auto' : 'smooth',
+    });
+    setFlashItemId(revealQueueItemId);
+    onRevealQueueItem?.();
+  }, [revealQueueItemId, items, onRevealQueueItem]);
+
+  useEffect(() => {
+    if (flashItemId == null) {
+      return;
+    }
+    const timeout = window.setTimeout(() => setFlashItemId(null), 1400);
+    return () => window.clearTimeout(timeout);
+  }, [flashItemId]);
+
   return (
     <SortableContext
       items={items.map((item) => queueDragId(item.id))}
@@ -37,6 +73,7 @@ export function QueueList({
             key={item.id}
             item={item}
             current={item.id === currentQueueItemId}
+            flash={item.id === flashItemId}
             dropLineClassName={dropLineClass(
               item.id,
               index === items.length - 1,
@@ -45,6 +82,7 @@ export function QueueList({
             )}
             onShowCover={onShowCover}
             onApplySearchTerm={onApplySearchTerm}
+            itemRefs={itemRefs}
           />
         ))}
       </ol>
@@ -55,15 +93,19 @@ export function QueueList({
 function SortableQueueItem({
   item,
   current,
+  flash,
   dropLineClassName,
   onShowCover,
   onApplySearchTerm,
+  itemRefs,
 }: {
   item: QueueItemDto;
   current: boolean;
+  flash: boolean;
   dropLineClassName: string;
   onShowCover?: (track: QueueItemDto['track']) => void;
   onApplySearchTerm?: (term: string) => void;
+  itemRefs: MutableRefObject<Map<number, HTMLLIElement>>;
 }) {
   const { state } = useSession();
   const separation = queueSeparationDisplay(item, state.jobs.separation);
@@ -74,12 +116,23 @@ function SortableQueueItem({
 
   return (
     <li
-      ref={setNodeRef}
+      ref={(node) => {
+        setNodeRef(node);
+        const refs = itemRefs.current;
+        if (!refs) {
+          return;
+        }
+        if (node) {
+          refs.set(item.id, node);
+        } else {
+          refs.delete(item.id);
+        }
+      }}
       style={{
         transform: CSS.Transform.toString(transform),
         transition,
       }}
-      className={`${current ? 'current' : ''}${isDragging ? ' dragging' : ''}${dropLineClassName ? ` ${dropLineClassName}` : ''}`.trim()}
+      className={`${current ? 'current' : ''}${isDragging ? ' dragging' : ''}${flash ? ' reveal' : ''}${dropLineClassName ? ` ${dropLineClassName}` : ''}`.trim()}
       title="Drag to reorder or add to a playlist"
       onDoubleClick={(event) => {
         if (isInteractiveTrackTarget(event.target)) {

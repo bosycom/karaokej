@@ -46,6 +46,9 @@ export function UiScaleControl() {
       >
         <FiMinus aria-hidden />
       </button>
+      <span className="ui-scale-value" aria-live="polite">
+        {label}
+      </span>
       <button
         type="button"
         className="icon-btn"

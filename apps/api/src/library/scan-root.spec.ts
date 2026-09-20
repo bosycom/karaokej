@@ -5,8 +5,17 @@ import {
   planPathRebase,
   prefixRelativePath,
   projectedPathsAfterRebase,
+  relativeInsideNormalized,
   stripRelativePath,
 } from './scan-root';
+
+describe('relativeInsideNormalized', () => {
+  it('computes a nested relative path with mixed separators', () => {
+    expect(
+      relativeInsideNormalized('C:\\Audio\\Music', 'C:/Audio/Music/Rock/song.mp3'),
+    ).toBe('Rock/song.mp3');
+  });
+});
 
 describe('detectRootChange', () => {
   it('detects expanded and narrowed roots', () => {

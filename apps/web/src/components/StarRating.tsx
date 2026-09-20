@@ -41,6 +41,7 @@ export function StarRating({
   const viewLabel = formatRatingLabel(saved);
   const tone = ratingTone(saved);
   const fill = ratingFill(saved);
+  const displayedTone = ratingTone(displayed > 0 ? displayed : null);
   const fillColor = ratingToneColor(tone, state.settings);
   const labelInk = fillColor ? contrastInk(fillColor) : null;
   const viewStyle: CSSProperties | undefined =
@@ -219,18 +220,27 @@ export function StarRating({
         {Array.from({ length: 5 }, (_, index) => {
           const left = index * 2 + 1;
           const right = index * 2 + 2;
-          const fill =
+          const slotFill =
             displayed >= right ? 1 : displayed >= left ? 0.5 : 0;
+          const slotTone = slotFill > 0 ? displayedTone : 'muted';
           return (
-            <span key={index} className="star-slot">
+            <span
+              key={index}
+              className={`star-slot star-rating-tone-${slotTone}`}
+            >
               <svg className="star-shape" viewBox="0 0 24 24" aria-hidden>
                 <defs>
                   <clipPath id={`${clipId}-${index}`}>
-                    <rect x="0" y="0" width={fill === 1 ? 24 : 12} height="24" />
+                    <rect
+                      x="0"
+                      y="0"
+                      width={slotFill === 1 ? 24 : 12}
+                      height="24"
+                    />
                   </clipPath>
                 </defs>
                 <path className="star-empty" d={STAR_PATH} />
-                {fill > 0 && (
+                {slotFill > 0 && (
                   <path
                     className="star-fill"
                     d={STAR_PATH}

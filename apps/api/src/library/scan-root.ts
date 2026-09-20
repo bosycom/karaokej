@@ -4,18 +4,32 @@ export function normalizeScanRoot(path: string): string {
   return resolve(path);
 }
 
-/** Relative path from parent to child when child is under parent; otherwise null. */
-export function nestingRelative(parent: string, child: string): string | null {
-  const normalizedParent = normalizeScanRoot(parent);
-  const normalizedChild = normalizeScanRoot(child);
-  if (normalizedParent === normalizedChild) {
+/**
+ * Relative path from parent to child when child is under parent.
+ * Slash-normalized so Windows `\` roots compare the same as `/`.
+ */
+export function relativeInsideNormalized(
+  parent: string,
+  child: string,
+): string | null {
+  const parentNorm = parent.replace(/\\/g, '/').replace(/\/+$/, '');
+  const childNorm = child.replace(/\\/g, '/');
+  if (childNorm === parentNorm) {
     return '';
   }
-  const prefix = `${normalizedParent}/`;
-  if (!normalizedChild.startsWith(prefix)) {
+  const prefix = `${parentNorm}/`;
+  if (!childNorm.startsWith(prefix)) {
     return null;
   }
-  return normalizedChild.slice(prefix.length);
+  return childNorm.slice(prefix.length);
+}
+
+/** Relative path from parent to child when child is under parent; otherwise null. */
+export function nestingRelative(parent: string, child: string): string | null {
+  return relativeInsideNormalized(
+    normalizeScanRoot(parent),
+    normalizeScanRoot(child),
+  );
 }
 
 export type RootChange =
