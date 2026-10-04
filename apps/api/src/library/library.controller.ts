@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { LibrarySetupDto } from '@karaokej/shared';
 import { LibraryService } from './library.service';
 import { LyricsService } from '../lyrics/lyrics.service';
 import { CoverService } from '../covers/cover.service';
@@ -14,6 +15,11 @@ export class LibraryController {
   @Get('status')
   status() {
     return this.library.status();
+  }
+
+  @Post('setup')
+  setup(@Body() body: LibrarySetupDto) {
+    return this.library.saveSetup(body.libraryPaths ?? []);
   }
 
   @Get('artists/random')

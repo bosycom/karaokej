@@ -13,3 +13,7 @@ temp/
 docs/
 deploy-windows/
 deploy-windows.zip
+vendor/win/
+dist/electron-app/
+release/
+apps/desktop/dist/

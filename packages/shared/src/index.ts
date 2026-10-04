@@ -150,6 +150,10 @@ export interface ScanIssueDto {
   message: string;
 }
 
+export interface LibrarySetupDto {
+  libraryPaths: string[];
+}
+
 export interface LibraryStatusDto {
   trackCount: number;
   withLyrics: number;

@@ -34,15 +34,25 @@ npm start
 
 Then open `http://<host>:3000`.
 
-## Windows package
+## Windows desktop installer (Electron)
 
-From this machine, build a copy-ready folder (portable Node, prebuilt app, existing SQLite catalogue):
+From WSL, build an NSIS installer (bundled ffmpeg and yt-dlp; optional Demucs at install time):
+
+```bash
+npm run dist:win
+```
+
+See [apps/desktop/README.md](apps/desktop/README.md) for build requirements (bundled Wine on first run), upgrade behavior, and what to verify on a real Windows PC.
+
+## Windows portable folder (legacy)
+
+Copy-ready folder with portable Node (no Electron):
 
 ```bash
 npm run pack:windows
 ```
 
-Copy `deploy-windows/` (or `deploy-windows.zip`) to the Windows PC. Map the music share, then run `setup.ps1` and `start.ps1`. See `scripts/windows/README.md` (copied into the package as `README.md`).
+Copy `deploy-windows/` to the Windows PC, then run `setup.ps1` and `start.ps1`. See `scripts/windows/README.md`.
 
 ## Dependencies
 

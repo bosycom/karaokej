@@ -20,6 +20,7 @@ import {
   TrackPathDto,
 } from '@karaokej/shared';
 import { AppConfigService } from '../config/app-config.service';
+import { writePortableConfig } from '../config/portable-config';
 import { DbService } from '../db/db.service';
 import { JobRow, TrackRow, trackToDto } from '../db/types';
 import { loadStemRowsForTracks, resolveStemStatusForTrack } from '../karaoke/stem-status';
@@ -110,6 +111,22 @@ export class LibraryService implements OnModuleInit {
 
   onModuleInit(): void {
     this.reconcileScanJob('startup');
+  }
+
+  saveSetup(libraryPaths: string[]): LibraryStatusDto {
+    const root = process.env.KARAOKEJ_ROOT?.trim();
+    if (!root) {
+      throw new BadRequestException(
+        'Library setup is only available in the packaged desktop app',
+      );
+    }
+    const cleaned = libraryPaths.map((p) => p.trim()).filter(Boolean);
+    if (cleaned.length === 0) {
+      throw new BadRequestException('Choose at least one music library folder');
+    }
+    writePortableConfig(root, cleaned);
+    this.config.clearLibraryLayoutCache();
+    return this.status();
   }
 
   status(): LibraryStatusDto {

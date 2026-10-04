@@ -9,6 +9,7 @@ import {
   type LibraryPathLayout,
 } from '../library/library-paths';
 import { findCommandOnPath } from './path-lookup';
+import { readPortableConfig } from './portable-config';
 
 function clampInt(value: string | undefined, fallback: number, min: number, max: number): number {
   const parsed = Number.parseInt(value ?? '', 10);
@@ -28,9 +29,17 @@ export class AppConfigService {
 
   constructor(private readonly config: ConfigService) {}
 
-  /** Repo root: apps/api/dist/config -> ../../../../ */
+  /** Repo root, or install folder when KARAOKEJ_ROOT is set (Electron). */
   get repoRoot(): string {
+    const portableRoot = process.env.KARAOKEJ_ROOT?.trim();
+    if (portableRoot) {
+      return resolve(portableRoot);
+    }
     return resolve(__dirname, '../../../../');
+  }
+
+  clearLibraryLayoutCache(): void {
+    this.libraryLayoutCache = null;
   }
 
   get libraryPaths(): string[] {
@@ -43,10 +52,14 @@ export class AppConfigService {
 
   get libraryLayout(): LibraryPathLayout {
     if (!this.libraryLayoutCache) {
-      const roots = parseLibraryPathEntries(
-        this.config.get<string>('MUSIC_LIBRARY_PATH'),
-        this.repoRoot,
-      );
+      let musicPath = this.config.get<string>('MUSIC_LIBRARY_PATH');
+      if (!musicPath?.trim() && process.env.KARAOKEJ_ROOT?.trim()) {
+        const portable = readPortableConfig(process.env.KARAOKEJ_ROOT);
+        if (portable?.libraryPaths.length) {
+          musicPath = portable.libraryPaths.join(',');
+        }
+      }
+      const roots = parseLibraryPathEntries(musicPath, this.repoRoot);
       this.libraryLayoutCache = buildLibraryPathLayout(roots);
     }
     return this.libraryLayoutCache;
@@ -130,6 +143,10 @@ export class AppConfigService {
     return this.config.get<string>('DEMUCS_PATH')?.trim() || 'demucs';
   }
 
+  get demucsPythonModule(): string | null {
+    return this.config.get<string>('DEMUCS_PYTHON_MODULE')?.trim() || null;
+  }
+
   get demucsModel(): string {
     return this.config.get<string>('DEMUCS_MODEL')?.trim() || 'htdemucs';
   }
@@ -190,6 +207,18 @@ export class AppConfigService {
       return existsSync(configured) ? configured : null;
     }
     return findCommandOnPath(configured);
+  }
+
+  resolveDemucsSpawn(): { executable: string; prefixArgs: string[] } | null {
+    const executable = this.resolveDemucsExecutable();
+    if (!executable) {
+      return null;
+    }
+    const module = this.demucsPythonModule;
+    if (module) {
+      return { executable, prefixArgs: ['-m', module] };
+    }
+    return { executable, prefixArgs: [] };
   }
 
   get ytdlpAudioFormat(): string {

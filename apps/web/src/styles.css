@@ -3081,3 +3081,89 @@ a.search-miss-btn:hover {
 .vocal-settings-panel .karaoke-mode-hint {
   display: block;
 }
+
+.setup-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1.25rem;
+  background: var(--bg);
+}
+
+.setup-card {
+  width: min(42rem, 100%);
+  padding: 1.75rem 1.5rem;
+  background: var(--bg-raise);
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+}
+
+.setup-card h1 {
+  margin: 0 0 0.75rem;
+  font-size: 1.65rem;
+}
+
+.setup-card p {
+  margin: 0 0 0.75rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.setup-hint code,
+.setup-card code {
+  font-size: 0.92em;
+}
+
+.setup-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin: 1.25rem 0;
+}
+
+.setup-manual {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.setup-input {
+  flex: 1 1 12rem;
+  min-width: 0;
+  padding: 0.45rem 0.6rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--line);
+  background: var(--bg-raise-2);
+  color: inherit;
+}
+
+.setup-path-list {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.setup-path-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  background: var(--bg-raise-2);
+  word-break: break-all;
+}
+
+.setup-empty {
+  font-style: italic;
+}
+
+.setup-error {
+  color: var(--danger, #f87171);
+}

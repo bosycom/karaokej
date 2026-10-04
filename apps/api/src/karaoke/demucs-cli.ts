@@ -8,6 +8,13 @@ export interface BuildDemucsArgsInput {
   extraArgs?: string[];
 }
 
+export function composeDemucsSpawnArgs(
+  prefixArgs: string[],
+  demucsArgs: string[],
+): string[] {
+  return [...prefixArgs, ...demucsArgs];
+}
+
 export function buildDemucsArgs(input: BuildDemucsArgsInput): string[] {
   return [
     '--two-stems',

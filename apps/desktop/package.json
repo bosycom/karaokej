@@ -1,0 +1,76 @@
+{
+  "name": "karaokej-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Karaokej Electron shell for Windows",
+  "main": "dist/main.js",
+  "author": "Karaokej",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "icons": "python3 build/generate-icons.py",
+    "pack": "electron-builder --win --x64"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "electron": "44.5.1",
+    "electron-builder": "^26.0.12",
+    "typescript": "^5.8.3"
+  },
+  "build": {
+    "appId": "com.karaokej.app",
+    "productName": "Karaokej",
+    "copyright": "Copyright © Karaokej",
+    "afterPack": "../../scripts/electron-after-pack.js",
+    "asar": false,
+    "directories": {
+      "output": "../../release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
+      },
+      {
+        "from": "../../dist/electron-app",
+        "to": "karaokej-server",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "../../vendor/win/bin",
+        "to": "bin",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "../../vendor/win/demucs-runtime.zip",
+        "to": "demucs-runtime.zip"
+      }
+    ],
+    "icon": "build/icon.ico",
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "artifactName": "Karaokej-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "allowElevation": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Karaokej",
+      "include": "build/installer.nsh",
+      "deleteAppDataOnUninstall": false
+    }
+  }
+}

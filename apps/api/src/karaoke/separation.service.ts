@@ -25,6 +25,7 @@ import { SessionService } from '../session/session.service';
 import { SETTING_KARAOKE_MODE } from './karaoke.service';
 import {
   buildDemucsArgs,
+  composeDemucsSpawnArgs,
   parseDemucsProgress,
   resolveStemOutputPath,
   spawnDemucs,
@@ -217,8 +218,8 @@ export class SeparationService implements OnModuleInit {
   }
 
   private async processOne(trackId: number): Promise<void> {
-    const executable = this.config.resolveDemucsExecutable();
-    if (!executable) {
+    const spawnTarget = this.config.resolveDemucsSpawn();
+    if (!spawnTarget) {
       this.upsertStem(trackId, { status: 'unsupported', error: 'demucs not found' });
       return;
     }
@@ -252,17 +253,20 @@ export class SeparationService implements OnModuleInit {
     });
 
     const tempDir = mkdtempSync(join(tmpdir(), 'karaokej-demucs-'));
-    const args = buildDemucsArgs({
-      model: this.config.demucsModel,
-      inputPath: absolute,
-      outputDir: tempDir,
-      extraArgs: this.config.demucsExtraArgs,
-    });
+    const args = composeDemucsSpawnArgs(
+      spawnTarget.prefixArgs,
+      buildDemucsArgs({
+        model: this.config.demucsModel,
+        inputPath: absolute,
+        outputDir: tempDir,
+        extraArgs: this.config.demucsExtraArgs,
+      }),
+    );
 
     let lastPercent = 0;
     try {
       const result = await this.spawnFn({
-        executable,
+        executable: spawnTarget.executable,
         args,
         timeoutMs: this.config.demucsTimeoutMs,
         onChild: (child) => {

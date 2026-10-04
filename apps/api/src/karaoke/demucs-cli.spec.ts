@@ -2,9 +2,25 @@ import { describe, expect, it } from 'vitest';
 import { join } from 'node:path';
 import {
   buildDemucsArgs,
+  composeDemucsSpawnArgs,
   parseDemucsProgress,
   resolveStemOutputPath,
 } from './demucs-cli';
+
+describe('composeDemucsSpawnArgs', () => {
+  it('prefixes python module invocation', () => {
+    const demucsArgs = buildDemucsArgs({
+      model: 'htdemucs',
+      inputPath: '/music/song.mp3',
+      outputDir: '/tmp/out',
+    });
+    expect(composeDemucsSpawnArgs(['-m', 'demucs'], demucsArgs)).toEqual([
+      '-m',
+      'demucs',
+      ...demucsArgs,
+    ]);
+  });
+});
 
 describe('buildDemucsArgs', () => {
   it('builds two-stem vocal separation args', () => {

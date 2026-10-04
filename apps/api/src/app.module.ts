@@ -25,6 +25,7 @@ import { PlaylistsService } from './playlists/playlists.service';
 import { ExternalController } from './external/external.controller';
 import { YtsaverService } from './external/ytsaver.service';
 import { YtdlpService } from './external/ytdlp.service';
+import { YtdlpUpdateService } from './external/ytdlp-update.service';
 import { KaraokeController } from './karaoke/karaoke.controller';
 import { KaraokeService } from './karaoke/karaoke.service';
 import { SeparationService } from './karaoke/separation.service';
@@ -74,6 +75,7 @@ import { ArtistBioService } from './artist-bio/artist-bio.service';
     PlaylistsService,
     YtsaverService,
     YtdlpService,
+    YtdlpUpdateService,
     KaraokeService,
     SeparationService,
     CoverService,

@@ -15,6 +15,7 @@ describe('SeparationService', () => {
   let config: {
     isDemucsAvailable: () => boolean;
     resolveDemucsExecutable: () => string | null;
+    resolveDemucsSpawn: () => { executable: string; prefixArgs: string[] } | null;
     demucsModel: string;
     demucsExtraArgs: string[];
     demucsTimeoutMs: number;
@@ -40,6 +41,10 @@ describe('SeparationService', () => {
     config = {
       isDemucsAvailable: () => true,
       resolveDemucsExecutable: () => '/usr/bin/demucs',
+      resolveDemucsSpawn: () => ({
+        executable: '/usr/bin/demucs',
+        prefixArgs: [],
+      }),
       demucsModel: 'htdemucs',
       demucsExtraArgs: [],
       demucsTimeoutMs: 60_000,
@@ -87,6 +92,7 @@ describe('SeparationService', () => {
   it('marks unsupported when demucs is unavailable', () => {
     config.isDemucsAvailable = () => false;
     config.resolveDemucsExecutable = () => null;
+    config.resolveDemucsSpawn = () => null;
     const trackId = insertTrack(db, {
       relativePath: 'a/song.mp3',
       title: 'Song',

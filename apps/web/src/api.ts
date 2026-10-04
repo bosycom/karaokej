@@ -10,6 +10,7 @@ import {
   KaraokeSettingsDto,
   KaraokeStateDto,
   KaraokeTrackSettings,
+  LibrarySetupDto,
   LibraryStatusDto,
   LyricSearchResultDto,
   LyricsDto,
@@ -56,6 +57,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   libraryStatus: () => request<LibraryStatusDto>('/api/library/status'),
+  librarySetup: (libraryPaths: string[]) =>
+    request<LibraryStatusDto>('/api/library/setup', {
+      method: 'POST',
+      body: JSON.stringify({ libraryPaths } satisfies LibrarySetupDto),
+    }),
   randomArtist: (exclude?: string) => {
     const params = new URLSearchParams();
     if (exclude?.trim()) {
