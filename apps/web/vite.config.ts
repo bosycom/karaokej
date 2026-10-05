@@ -38,9 +38,10 @@ export default defineConfig(({ mode }) => {
       ...(devOrigin ? { origin: devOrigin } : {}),
       ...(lanHmr !== undefined ? { hmr: lanHmr } : {}),
       proxy: {
-        '/api': 'http://127.0.0.1:3000',
+        // Dev API is 3002. Electron stays on 3000; 3001 is taken by Cursor.
+        '/api': 'http://127.0.0.1:3002',
         '/ws': {
-          target: 'ws://127.0.0.1:3000',
+          target: 'ws://127.0.0.1:3002',
           ws: true,
         },
       },
