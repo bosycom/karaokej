@@ -11,6 +11,7 @@ import {
   KaraokeStateDto,
   KaraokeTrackSettings,
   LibrarySetupDto,
+  LibrarySort,
   LibraryStatusDto,
   LyricSearchResultDto,
   LyricsDto,
@@ -131,11 +132,13 @@ export const api = {
     minRating = 0,
     hideDuplicates = false,
     tagNames: string[] = [],
+    sort: LibrarySort = 'relevance',
   ) => {
     const params = new URLSearchParams({
       q,
       page: String(page),
       limit: String(limit),
+      sort,
     });
     if (minRating > 0) {
       params.set('minRating', String(minRating));
@@ -153,8 +156,9 @@ export const api = {
     minRating = 0,
     hideDuplicates = false,
     tagNames: string[] = [],
+    sort: LibrarySort = 'relevance',
   ) => {
-    const params = new URLSearchParams({ q, orderedIds: '1' });
+    const params = new URLSearchParams({ q, orderedIds: '1', sort });
     if (minRating > 0) {
       params.set('minRating', String(minRating));
     }

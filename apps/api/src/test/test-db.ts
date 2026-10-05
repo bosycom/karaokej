@@ -184,6 +184,7 @@ export function insertTrack(
     title: string;
     artist?: string | null;
     album?: string | null;
+    trackNo?: number | null;
     available?: number;
     format?: string;
     durationMs?: number | null;
@@ -197,9 +198,9 @@ export function insertTrack(
   db.raw
     .prepare(
       `INSERT INTO tracks (
-         relative_path, format, size_bytes, mtime_ms, title, artist, album,
+         relative_path, format, size_bytes, mtime_ms, title, artist, album, track_no,
          duration_ms, lyric_status, rating, metadata_status, cover_group, available, created_at, updated_at
-       ) VALUES (?, ?, 1000, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       ) VALUES (?, ?, 1000, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       patch.relativePath,
@@ -208,6 +209,7 @@ export function insertTrack(
       patch.title,
       patch.artist ?? null,
       patch.album ?? null,
+      patch.trackNo ?? null,
       patch.durationMs ?? null,
       patch.lyricStatus ?? 'missing',
       patch.rating ?? null,

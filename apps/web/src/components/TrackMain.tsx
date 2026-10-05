@@ -6,12 +6,14 @@ import { TrackSearchTerm } from './TrackSearchTerm';
 interface TrackMainProps extends HTMLAttributes<HTMLDivElement> {
   track: TrackDto;
   muted?: boolean;
+  showTrackNo?: boolean;
   onApplySearchTerm?: (term: string) => void;
 }
 
 export function TrackMain({
   track,
   muted = false,
+  showTrackNo = false,
   onApplySearchTerm,
   className,
   ...rest
@@ -22,6 +24,9 @@ export function TrackMain({
       {...rest}
     >
       <strong>
+        {showTrackNo && track.trackNo != null ? (
+          <span className="track-no">{track.trackNo}</span>
+        ) : null}
         {onApplySearchTerm ? (
           <TrackSearchTerm term={track.title} onApplySearchTerm={onApplySearchTerm} />
         ) : (

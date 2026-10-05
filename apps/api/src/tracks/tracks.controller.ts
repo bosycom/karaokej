@@ -22,7 +22,7 @@ import { SeparationService } from '../karaoke/separation.service';
 import { StreamService } from '../stream/stream.service';
 import { NotFoundException } from '@nestjs/common';
 import { ArtistBioService } from '../artist-bio/artist-bio.service';
-import { ArtistBioChooseDto, parseTagName } from '@karaokej/shared';
+import { ArtistBioChooseDto, parseLibrarySort, parseTagName } from '@karaokej/shared';
 import { TagsService } from '../tags/tags.service';
 
 function tagKeysFromQuery(tags?: string | string[]): string[] {
@@ -62,6 +62,7 @@ export class TracksController {
     @Query('hideDuplicates') hideDuplicates?: string,
     @Query('tags') tags?: string | string[],
     @Query('orderedIds') orderedIds?: string,
+    @Query('sort') sort?: string,
   ) {
     const parsed =
       minRating == null || minRating === '' ? undefined : Number(minRating);
@@ -70,13 +71,14 @@ export class TracksController {
       hideDuplicates === 'true' ||
       hideDuplicates === 'yes';
     const tagKeys = tagKeysFromQuery(tags);
+    const librarySort = parseLibrarySort(sort);
     if (
       orderedIds === '1' ||
       orderedIds === 'true' ||
       orderedIds === 'yes'
     ) {
       return {
-        ids: this.library.orderedTrackIds(q, parsed, dedupe, tagKeys),
+        ids: this.library.orderedTrackIds(q, parsed, dedupe, tagKeys, librarySort),
       };
     }
     return this.library.search(
@@ -86,6 +88,7 @@ export class TracksController {
       parsed,
       dedupe,
       tagKeys,
+      librarySort,
     );
   }
 
