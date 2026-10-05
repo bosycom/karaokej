@@ -203,6 +203,128 @@ describe('LibraryService.search', () => {
     expect(partialQuery.total).toBe(1);
     expect(partialQuery.items[0]!.artist).toBe(artist);
   });
+
+  it('sorts an album search by track number, with missing numbers last', () => {
+    insertTrack(db, {
+      relativePath: 'manor/alpha.mp3',
+      title: 'Alpha',
+      artist: 'Composer',
+      album: 'Manor Lords',
+      trackNo: 3,
+    });
+    insertTrack(db, {
+      relativePath: 'manor/zulu.mp3',
+      title: 'Zulu',
+      artist: 'Composer',
+      album: 'Manor Lords',
+      trackNo: 1,
+    });
+    insertTrack(db, {
+      relativePath: 'manor/middle.mp3',
+      title: 'Middle',
+      artist: 'Composer',
+      album: 'Manor Lords',
+      trackNo: null,
+    });
+    insertTrack(db, {
+      relativePath: 'other/first.mp3',
+      title: 'Opening',
+      artist: 'Composer',
+      album: 'Another Album',
+      trackNo: 1,
+    });
+
+    const album = library.search('Manor Lords', 1, 50, undefined, false, [], 'album');
+    expect(album.items.map((track) => track.title)).toEqual(['Zulu', 'Alpha', 'Middle']);
+
+    const ids = library.orderedTrackIds('Manor Lords', undefined, false, [], 'album');
+    expect(ids).toEqual(album.items.map((track) => track.id));
+
+    const relevance = library.search('Manor Lords', 1, 50, undefined, false, [], 'relevance');
+    expect(relevance.items.map((track) => track.title)).toEqual(['Alpha', 'Middle', 'Zulu']);
+  });
+
+  it('sorts by artist, album, then track number', () => {
+    insertTrack(db, {
+      relativePath: 'b/late.mp3',
+      title: 'Late',
+      artist: 'B Artist',
+      album: 'Album',
+      trackNo: 1,
+    });
+    insertTrack(db, {
+      relativePath: 'a/second.mp3',
+      title: 'Second',
+      artist: 'A Artist',
+      album: 'Zed',
+      trackNo: 2,
+    });
+    insertTrack(db, {
+      relativePath: 'a/first.mp3',
+      title: 'First',
+      artist: 'A Artist',
+      album: 'Zed',
+      trackNo: 1,
+    });
+
+    const page = library.search('', 1, 50, undefined, false, [], 'artist');
+    expect(page.items.map((track) => track.title)).toEqual(['First', 'Second', 'Late']);
+  });
+
+  it('sorts by title', () => {
+    insertTrack(db, {
+      relativePath: 'z.mp3',
+      title: 'Zebra',
+      artist: 'A',
+      album: 'Album',
+      trackNo: 1,
+    });
+    insertTrack(db, {
+      relativePath: 'a.mp3',
+      title: 'Apple',
+      artist: 'Z',
+      album: 'Album',
+      trackNo: 9,
+    });
+
+    const page = library.search('', 1, 50, undefined, false, [], 'title');
+    expect(page.items.map((track) => track.title)).toEqual(['Apple', 'Zebra']);
+  });
+
+  it('keeps album order when duplicate formats are hidden', () => {
+    insertTrack(db, {
+      relativePath: 'manor/two.mp3',
+      title: 'Two',
+      artist: 'Composer',
+      album: 'Manor Lords',
+      trackNo: 2,
+      durationMs: 180_000,
+      lyricStatus: 'missing',
+    });
+    insertTrack(db, {
+      relativePath: 'manor/two.opus',
+      title: 'Two',
+      artist: 'Composer',
+      album: 'Manor Lords',
+      trackNo: 2,
+      format: 'opus',
+      durationMs: 180_000,
+      lyricStatus: 'present',
+    });
+    insertTrack(db, {
+      relativePath: 'manor/one.mp3',
+      title: 'One',
+      artist: 'Composer',
+      album: 'Manor Lords',
+      trackNo: 1,
+      durationMs: 120_000,
+    });
+
+    const page = library.search('Manor Lords', 1, 50, undefined, true, [], 'album');
+    expect(page.total).toBe(2);
+    expect(page.items.map((track) => track.title)).toEqual(['One', 'Two']);
+    expect(page.items[1]!.format).toBe('opus');
+  });
 });
 
 describe('LibraryService scan job recovery', () => {

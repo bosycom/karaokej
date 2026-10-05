@@ -28,6 +28,7 @@ interface DraggableTrackRowProps {
   onShowCover: (track: TrackDto) => void;
   onManageTags: (track: TrackDto) => void;
   onToggleSelect: (track: TrackDto) => void;
+  showTrackNo?: boolean;
 }
 
 export function DraggableTrackRow({
@@ -46,6 +47,7 @@ export function DraggableTrackRow({
   onShowCover,
   onManageTags,
   onToggleSelect,
+  showTrackNo = false,
 }: DraggableTrackRowProps) {
   const { state } = useSession();
   const { listeners, setNodeRef, isDragging } = useDraggable({
@@ -93,6 +95,7 @@ export function DraggableTrackRow({
       <TrackMain
         track={track}
         title="Drag to add to queue"
+        showTrackNo={showTrackNo}
         onApplySearchTerm={onApplySearchTerm}
         {...listeners}
       />

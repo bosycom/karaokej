@@ -16,7 +16,9 @@ import {
 } from 'react-icons/fi';
 import { LuDices, LuHistory } from 'react-icons/lu';
 import {
+  LibrarySort,
   LibraryStatusDto,
+  parseLibrarySort,
   PlaylistDetailDto,
   PlaylistQueueMode,
   PlaylistSummaryDto,
@@ -57,11 +59,22 @@ import { MODAL_IDS } from '../modals/dismissedModals';
 import { useConfirmModal } from '../modals/useConfirmModal';
 import { useSession } from '../session/SessionProvider';
 
+const LIBRARY_SORT_KEY = 'karaokej.librarySort';
+
+function readStoredSort(): LibrarySort {
+  try {
+    return parseLibrarySort(sessionStorage.getItem(LIBRARY_SORT_KEY));
+  } catch {
+    return 'relevance';
+  }
+}
+
 export function LibraryPage() {
   const { state, isPlayer, clientId } = useSession();
   const [searchParams, setSearchParams] = useSearchParams();
   const confirmModal = useConfirmModal();
   const [query, setQuery] = useState('');
+  const [sort, setSort] = useState<LibrarySort>(readStoredSort);
   const [inputValue, setInputValue] = useState('');
   const [searchHistory, setSearchHistory] = useState(() => readSearchHistory());
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -138,7 +151,7 @@ export function LibraryPage() {
       return;
     }
     void api
-      .orderedTrackIds(query, minRating, hideDuplicates, tagNames)
+      .orderedTrackIds(query, minRating, hideDuplicates, tagNames, sort)
       .then(({ ids }) => {
         const idSet = new Set(ids);
         setSelectedTracks((prev) => {
@@ -152,7 +165,7 @@ export function LibraryPage() {
         });
       })
       .catch(() => {});
-  }, [query, minRating, hideDuplicates, tagNames]);
+  }, [query, minRating, hideDuplicates, tagNames, sort]);
 
   useEffect(() => {
     if (searchParams.get('scan') !== '1') {
@@ -170,9 +183,10 @@ export function LibraryPage() {
     rating = minRating,
     dedupe = hideDuplicates,
     tags = tagNames,
+    librarySort = sort,
   ) => {
     try {
-      const result = await api.tracks(q, p, limit, rating, dedupe, tags);
+      const result = await api.tracks(q, p, limit, rating, dedupe, tags, librarySort);
       setTracks(result.items);
       setTotal(result.total);
       setError(null);
@@ -190,8 +204,8 @@ export function LibraryPage() {
   };
 
   useEffect(() => {
-    void loadTracks(query, page, minRating, hideDuplicates, tagNames);
-  }, [query, page, minRating, hideDuplicates, tagNames]);
+    void loadTracks(query, page, minRating, hideDuplicates, tagNames, sort);
+  }, [query, page, minRating, hideDuplicates, tagNames, sort]);
 
   const loadPlaylists = useCallback(async () => {
     try {
@@ -364,6 +378,16 @@ export function LibraryPage() {
     minRating === 0 &&
     hideDuplicates === false &&
     tagNames.length === 0;
+
+  const changeSort = (next: LibrarySort) => {
+    setSort(next);
+    setPage(1);
+    try {
+      sessionStorage.setItem(LIBRARY_SORT_KEY, next);
+    } catch {
+      /* private mode */
+    }
+  };
 
   const openFilters = () => {
     setFiltersDraft(appliedFilters);
@@ -843,6 +867,19 @@ export function LibraryPage() {
           >
             <LuHistory aria-hidden />
           </button>
+          <label className="sort-control">
+            Sort
+            <select
+              aria-label="Sort"
+              value={sort}
+              onChange={(event) => changeSort(parseLibrarySort(event.target.value))}
+            >
+              <option value="relevance">Relevance</option>
+              <option value="album">Album</option>
+              <option value="artist">Artist</option>
+              <option value="title">Title</option>
+            </select>
+          </label>
           <button type="button" onClick={openFilters}>
             {filtersButtonLabel(filterCount)}
           </button>
@@ -941,6 +978,7 @@ export function LibraryPage() {
                             onShowCover={setCoverTrack}
                             onManageTags={setTagTrack}
                             onToggleSelect={() => toggleTrackSelection(track, rank)}
+                            showTrackNo={sort === 'album'}
                           />
                         );
                       })}

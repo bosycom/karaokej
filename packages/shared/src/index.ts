@@ -62,6 +62,18 @@ export interface TrackPageDto {
   limit: number;
 }
 
+/** How library search results are ordered. */
+export const LIBRARY_SORTS = ['relevance', 'album', 'artist', 'title'] as const;
+
+export type LibrarySort = (typeof LIBRARY_SORTS)[number];
+
+export function parseLibrarySort(value: string | null | undefined): LibrarySort {
+  if (value && (LIBRARY_SORTS as readonly string[]).includes(value)) {
+    return value as LibrarySort;
+  }
+  return 'relevance';
+}
+
 export interface TrackPathDto {
   path: string;
 }

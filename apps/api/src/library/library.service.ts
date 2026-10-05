@@ -15,6 +15,7 @@ import {
   LibraryStatusDto,
   RandomArtistDto,
   ScanIssueDto,
+  LibrarySort,
   TrackDto,
   TrackPageDto,
   TrackPathDto,
@@ -94,6 +95,36 @@ const DEDUPE_KEEP_ORDER = `
   CASE WHEN lyric_status = 'present' THEN 0 ELSE 1 END,
   id
 `;
+
+/** Unnumbered tracks sort after any real track number. */
+const MISSING_TRACK_NO = 999_999;
+
+function trackOrderSql(
+  sort: LibrarySort,
+  options: { hasQuery: boolean; fts: boolean; qualified: boolean },
+): string {
+  const col = (name: string) => (options.qualified ? `t.${name}` : name);
+  const artist = `${col('artist')} COLLATE NOCASE`;
+  const album = `${col('album')} COLLATE NOCASE`;
+  const title = `${col('title')} COLLATE NOCASE`;
+  const trackNo = `COALESCE(${col('track_no')}, ${MISSING_TRACK_NO})`;
+  const id = col('id');
+  const effective: LibrarySort =
+    !options.hasQuery && sort === 'relevance' ? 'artist' : sort;
+
+  switch (effective) {
+    case 'album':
+      return `${album}, ${artist}, ${trackNo}, ${title}, ${id}`;
+    case 'artist':
+      return `${artist}, ${album}, ${trackNo}, ${title}, ${id}`;
+    case 'title':
+      return `${title}, ${artist}, ${id}`;
+    case 'relevance':
+      return options.fts
+        ? `rank, ${artist}, ${title}, ${id}`
+        : `${artist}, ${title}, ${id}`;
+  }
+}
 
 @Injectable()
 export class LibraryService implements OnModuleInit {
@@ -498,6 +529,7 @@ export class LibraryService implements OnModuleInit {
     minRating?: number,
     hideDuplicates = false,
     tagKeys: string[] = [],
+    sort: LibrarySort = 'relevance',
   ): TrackPageDto {
     const safePage = Math.max(1, page);
     const safeLimit = Math.min(100, Math.max(1, limit));
@@ -513,8 +545,11 @@ export class LibraryService implements OnModuleInit {
       const tags = tagsFor('id');
       const baseWhere = `1=1${availableSql}${ratingSql}${tags.sql}`;
       const baseParams = [...ratingParams, ...tags.params];
-      const orderBy =
-        'artist COLLATE NOCASE, album COLLATE NOCASE, track_no, title COLLATE NOCASE';
+      const orderBy = trackOrderSql(sort, {
+        hasQuery: false,
+        fts: false,
+        qualified: false,
+      });
       const { total, rows } = hideDuplicates
         ? this.searchDeduped(
             `SELECT ${TRACK_SELECT_COLUMNS} FROM tracks WHERE ${baseWhere}`,
@@ -546,7 +581,11 @@ export class LibraryService implements OnModuleInit {
     try {
       const tags = tagsFor('t.id');
       const ftsWhere = `tracks_fts MATCH ? AND t.available = 1${ratingSql}${tags.sql}`;
-      const ftsOrder = 'rank, t.artist COLLATE NOCASE, t.title COLLATE NOCASE';
+      const ftsOrder = trackOrderSql(sort, {
+        hasQuery: true,
+        fts: true,
+        qualified: !hideDuplicates,
+      });
       const ftsParams = [match, ...ratingParams, ...tags.params];
       if (hideDuplicates) {
         ({ total, rows } = this.searchDeduped(
@@ -579,7 +618,11 @@ export class LibraryService implements OnModuleInit {
       const like = `%${query.replaceAll('%', '\\%')}%`;
       const tags = tagsFor('id');
       const likeWhere = `(title LIKE ? ESCAPE '\\' OR artist LIKE ? ESCAPE '\\' OR album LIKE ? ESCAPE '\\') AND available = 1${ratingSql}${tags.sql}`;
-      const likeOrder = 'artist COLLATE NOCASE, title COLLATE NOCASE';
+      const likeOrder = trackOrderSql(sort, {
+        hasQuery: true,
+        fts: false,
+        qualified: false,
+      });
       const likeParams = [like, like, like, ...ratingParams, ...tags.params];
       if (hideDuplicates) {
         ({ total, rows } = this.searchDeduped(
@@ -615,8 +658,9 @@ export class LibraryService implements OnModuleInit {
     minRating?: number,
     hideDuplicates = false,
     tagKeys: string[] = [],
+    sort: LibrarySort = 'relevance',
   ): number[] {
-    const page = this.search(q, 1, 50_000, minRating, hideDuplicates, tagKeys);
+    const page = this.search(q, 1, 50_000, minRating, hideDuplicates, tagKeys, sort);
     return page.items.map((track) => track.id);
   }
 
