@@ -1,6 +1,6 @@
 import { ReactNode, useEffect, useId, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { FiMenu, FiSettings, FiX } from 'react-icons/fi';
+import { FiMenu, FiX } from 'react-icons/fi';
 import { useKaraoke } from '../session/useKaraoke';
 import { useLibraryStatus } from '../session/useLibraryStatus';
 import { useSession } from '../session/SessionProvider';
@@ -117,13 +117,8 @@ export function AppTopbar({
         {extras}
         <UiScaleControl />
         {trailing ?? (
-          <Link
-            className="topbar-link icon-btn"
-            to="/settings"
-            title="Settings"
-            aria-label="Settings"
-          >
-            <FiSettings aria-hidden />
+          <Link className="topbar-link" to="/settings">
+            Settings
           </Link>
         )}
         <div className="topbar-actions-brand">

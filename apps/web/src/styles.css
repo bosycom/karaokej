@@ -222,12 +222,6 @@ input[type='text'],
   padding: 0.25rem 0.35rem;
 }
 
-.topbar-actions-panel .topbar-link.icon-btn {
-  width: 100%;
-  justify-content: flex-start;
-  gap: 0.5rem;
-}
-
 .topbar-actions-brand {
   margin-top: 0.35rem;
   padding: 0.65rem 0.45rem 0.35rem;
