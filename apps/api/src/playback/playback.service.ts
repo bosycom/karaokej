@@ -164,12 +164,6 @@ export class PlaybackService {
   }
 
   private wrapQueueAndPlayFirst(): void {
-    const firstBefore = this.queue.firstQueueItemId();
-    if (firstBefore == null) {
-      this.setCurrent(null, 'idle');
-      return;
-    }
-    this.queue.shuffleEntireQueue();
     const first = this.queue.firstQueueItemId();
     if (first == null) {
       this.setCurrent(null, 'idle');

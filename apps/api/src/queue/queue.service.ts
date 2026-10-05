@@ -275,23 +275,6 @@ export class QueueService {
     return this.list();
   }
 
-  shuffleEntireQueue(): void {
-    const items = this.db.raw
-      .prepare(`SELECT id FROM queue_items ORDER BY position ASC, id ASC`)
-      .all() as Array<{ id: number }>;
-    if (items.length < 2) {
-      return;
-    }
-    const shuffled = fisherYatesShuffle(items.map((item) => item.id));
-    const update = this.db.raw.prepare(
-      `UPDATE queue_items SET position = ? WHERE id = ?`,
-    );
-    const tx = this.db.raw.transaction(() => {
-      shuffled.forEach((itemId, index) => update.run(index + 1, itemId));
-    });
-    tx();
-  }
-
   firstQueueItemId(): number | null {
     const first = this.db.raw
       .prepare(`SELECT id FROM queue_items ORDER BY position ASC, id ASC LIMIT 1`)

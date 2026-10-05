@@ -72,17 +72,27 @@ describe('PlaybackService loop', () => {
     expect(state.seekSeq).toBeGreaterThan(0);
   });
 
-  it('reshuffles and plays the first item when loop is on and skip leaves the last item', () => {
+  it('replays the first item in the same order when loop is on and skip leaves the last item', () => {
+    const trackC = insertTrack(db, {
+      relativePath: 'c/song-c.mp3',
+      title: 'Song C',
+      artist: 'Artist C',
+    });
     queue.add(trackA);
     queue.add(trackB);
+    queue.add(trackC);
     const items = queue.list();
-    setCurrent(db, items[1]!.id);
+    const order = items.map((item) => item.id);
+    setCurrent(db, items[2]!.id);
     setLoop(db, true);
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0);
 
     playback.skip();
 
+    random.mockRestore();
     const state = playback.get();
-    expect([items[0]!.id, items[1]!.id]).toContain(state.currentQueueItemId);
+    expect(queue.list().map((item) => item.id)).toEqual(order);
+    expect(state.currentQueueItemId).toBe(items[0]!.id);
     expect(state.status).toBe('playing');
   });
 
