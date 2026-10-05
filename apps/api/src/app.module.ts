@@ -18,6 +18,8 @@ import { LrclibClient } from './lyrics/lrclib.client';
 import { StreamService } from './stream/stream.service';
 import { SettingsService } from './settings/settings.service';
 import { SettingsController } from './settings/settings.controller';
+import { ToolCheckService } from './settings/tool-check.service';
+import { ToolPathsStatusService } from './settings/tool-paths-status.service';
 import { RatingService } from './rating/rating.service';
 import { TrackMetadataService } from './metadata/track-metadata.service';
 import { PlaylistsController } from './playlists/playlists.controller';
@@ -73,6 +75,8 @@ import { TagsService } from './tags/tags.service';
     LrclibClient,
     StreamService,
     SettingsService,
+    ToolCheckService,
+    ToolPathsStatusService,
     RatingService,
     TrackMetadataService,
     PlaylistsService,

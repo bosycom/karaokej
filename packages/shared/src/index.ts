@@ -273,6 +273,32 @@ export const DEFAULT_RATING_SILVER = '#c8d0dc';
 export const DEFAULT_RATING_BLUE = '#3b82f6';
 export const DEFAULT_RATING_RASPBERRY = '#e11d74';
 
+export const TOOL_IDS = [
+  'ffmpeg',
+  'ffprobe',
+  'ytdlp',
+  'node',
+  'demucs',
+  'ytsaver',
+] as const;
+
+export type ToolId = (typeof TOOL_IDS)[number];
+
+export interface ToolCheckResultDto {
+  version: string | null;
+  message: string;
+}
+
+export interface ToolPathStatusDto {
+  id: ToolId;
+  effectivePath: string;
+  available: boolean;
+}
+
+export interface ToolPathsStatusDto {
+  tools: ToolPathStatusDto[];
+}
+
 export interface AppSettingsDto {
   removePlayedFromQueue: boolean;
   /** 0 = off, 1–10 = crossfade duration in seconds */
@@ -283,6 +309,13 @@ export interface AppSettingsDto {
   ratingSilver: string;
   ratingBlue: string;
   ratingRaspberry: string;
+  /** Empty string = use .env then built-in default */
+  ytdlpPath: string;
+  ffmpegPath: string;
+  ffprobePath: string;
+  ytdlpNodePath: string;
+  ytsaverPath: string;
+  demucsPath: string;
 }
 
 export interface SessionStateDto {

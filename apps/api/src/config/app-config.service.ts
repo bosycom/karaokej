@@ -2,6 +2,16 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import {
+  SETTING_TOOL_PATH_DEMUCS,
+  SETTING_TOOL_PATH_FFMPEG,
+  SETTING_TOOL_PATH_FFPROBE,
+  SETTING_TOOL_PATH_YTDLP,
+  SETTING_TOOL_PATH_YTDLP_NODE,
+  SETTING_TOOL_PATH_YTSAVER,
+  TOOL_PATH_SETTING_KEYS,
+} from '../settings/tool-path-keys';
 import {
   buildLibraryPathLayout,
   parseLibraryPathEntries,
@@ -27,8 +37,13 @@ function envFlag(value: string | undefined): boolean {
 @Injectable()
 export class AppConfigService {
   private libraryLayoutCache: LibraryPathLayout | null = null;
+  private toolPathOverrideCache: Map<string, string> | null = null;
 
   constructor(private readonly config: ConfigService) {}
+
+  clearToolPathOverrideCache(): void {
+    this.toolPathOverrideCache = null;
+  }
 
   /** Repo root, or install folder when KARAOKEJ_ROOT is set (Electron). */
   get repoRoot(): string {
@@ -100,20 +115,32 @@ export class AppConfigService {
   }
 
   get ytsaverPath(): string {
+    return this.resolveToolPath(SETTING_TOOL_PATH_YTSAVER, () => this.envYtsaverPath());
+  }
+
+  get ytdlpPath(): string {
+    return this.resolveToolPath(SETTING_TOOL_PATH_YTDLP, () => this.envYtdlpPath());
+  }
+
+  get ffmpegPath(): string {
+    return this.resolveToolPath(SETTING_TOOL_PATH_FFMPEG, () => this.envFfmpegPath());
+  }
+
+  private envYtsaverPath(): string {
     const raw =
       this.config.get<string>('YTSAVER_PATH') ??
       '/mnt/c/Program Files/YT Saver/ytsaverw.exe';
     return isAbsolute(raw) ? raw : resolve(this.repoRoot, raw);
   }
 
-  get ytdlpPath(): string {
+  private envYtdlpPath(): string {
     const raw =
       this.config.get<string>('YTDLP_PATH') ??
       '/mnt/c/Program Files/yt-dlp/yt-dlp.exe';
     return isAbsolute(raw) ? raw : resolve(this.repoRoot, raw);
   }
 
-  get ffmpegPath(): string {
+  private envFfmpegPath(): string {
     const raw = this.config.get<string>('FFMPEG_PATH')?.trim();
     if (raw && !isYtSaverPath(raw)) {
       return isAbsolute(raw) ? raw : resolve(this.repoRoot, raw);
@@ -146,6 +173,10 @@ export class AppConfigService {
   }
 
   get ffprobePath(): string {
+    return this.resolveToolPath(SETTING_TOOL_PATH_FFPROBE, () => this.envFfprobePath());
+  }
+
+  private envFfprobePath(): string {
     const raw = this.config.get<string>('FFPROBE_PATH')?.trim();
     if (raw) {
       return isAbsolute(raw) ? raw : resolve(this.repoRoot, raw);
@@ -162,6 +193,10 @@ export class AppConfigService {
   }
 
   get demucsPath(): string {
+    const override = this.getToolPathOverride(SETTING_TOOL_PATH_DEMUCS);
+    if (override) {
+      return isAbsolute(override) ? override : resolve(this.repoRoot, override);
+    }
     return this.config.get<string>('DEMUCS_PATH')?.trim() || 'demucs';
   }
 
@@ -252,6 +287,10 @@ export class AppConfigService {
    * Windows yt-dlp.exe cannot run the WSL Node from nvm; prefer a Windows node.exe.
    */
   get ytdlpNodePath(): string {
+    return this.resolveToolPath(SETTING_TOOL_PATH_YTDLP_NODE, () => this.envYtdlpNodePath());
+  }
+
+  private envYtdlpNodePath(): string {
     const raw = this.config.get<string>('YTDLP_NODE_PATH')?.trim();
     if (raw) {
       return isAbsolute(raw) ? raw : resolve(this.repoRoot, raw);
@@ -263,6 +302,51 @@ export class AppConfigService {
       }
     }
     return process.execPath;
+  }
+
+  private resolveToolPath(
+    settingKey: string,
+    envFallback: () => string,
+  ): string {
+    const override = this.getToolPathOverride(settingKey);
+    if (override) {
+      return isAbsolute(override) ? override : resolve(this.repoRoot, override);
+    }
+    return envFallback();
+  }
+
+  private getToolPathOverride(settingKey: string): string | null {
+    const value = this.readToolPathOverrides().get(settingKey)?.trim();
+    return value ? value : null;
+  }
+
+  private readToolPathOverrides(): Map<string, string> {
+    if (this.toolPathOverrideCache) {
+      return this.toolPathOverrideCache;
+    }
+    const map = new Map<string, string>();
+    try {
+      const dbPath = this.databasePath;
+      if (!existsSync(dbPath)) {
+        this.toolPathOverrideCache = map;
+        return map;
+      }
+      const db = new DatabaseSync(dbPath, { readOnly: true });
+      const placeholders = TOOL_PATH_SETTING_KEYS.map(() => '?').join(', ');
+      const rows = db
+        .prepare(
+          `SELECT key, value FROM app_settings WHERE key IN (${placeholders})`,
+        )
+        .all(...TOOL_PATH_SETTING_KEYS) as Array<{ key: string; value: string }>;
+      db.close();
+      for (const row of rows) {
+        map.set(row.key, row.value);
+      }
+    } catch {
+      /* use env defaults */
+    }
+    this.toolPathOverrideCache = map;
+    return map;
   }
 
   get scanChunkSize(): number {

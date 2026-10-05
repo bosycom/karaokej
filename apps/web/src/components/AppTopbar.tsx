@@ -116,10 +116,12 @@ export function AppTopbar({
         </Link>
         {extras}
         <UiScaleControl />
-        {trailing ?? (
+        {trailing === undefined ? (
           <Link className="topbar-link" to="/settings">
             Settings
           </Link>
+        ) : (
+          trailing
         )}
         <div className="topbar-actions-brand">
           <p className="eyebrow">{eyebrow}</p>

@@ -129,8 +129,8 @@ export function SearchMissFallback({
             </div>
             {!ytdlpAvailable ? (
               <p className="search-miss-hint">
-                yt-dlp is not available on this host. Set <code>YTDLP_PATH</code> in .env if it
-                is installed elsewhere.
+                yt-dlp is not available on this host. Set its path in{' '}
+                <a href="/settings">Settings</a> or <code>YTDLP_PATH</code> in .env.
               </p>
             ) : null}
             {downloadRunning && downloadMessage ? (
@@ -238,8 +238,8 @@ export function SearchMissFallback({
               </div>
               {!ytsaverAvailable && (
                 <p className="search-miss-hint">
-                  YT Saver is not available on this host. Set <code>YTSAVER_PATH</code> in
-                  .env if it is installed elsewhere.
+                  YT Saver is not available on this host. Set its path in{' '}
+                  <a href="/settings">Settings</a> or <code>YTSAVER_PATH</code> in .env.
                 </p>
               )}
               {launchError && <p className="search-miss-error">{launchError}</p>}

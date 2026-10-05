@@ -91,7 +91,7 @@ export function SettingsTagsSection() {
   };
 
   return (
-    <section className="settings-section">
+    <section className="settings-panel settings-panel--wide">
       <h2>Tags</h2>
       <p className="settings-copy">
         Renaming a tag renames it on every song that uses it.

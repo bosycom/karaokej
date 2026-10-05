@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AppSettingsDto, LibraryStatusDto } from '@karaokej/shared';
+import { AppSettingsDto } from '@karaokej/shared';
 import { AppTopbar } from '../components/AppTopbar';
 import { PlayerBar } from '../components/PlayerBar';
 import {
@@ -18,6 +18,7 @@ import {
 import { api } from '../api';
 import { useSession } from '../session/SessionProvider';
 import { SettingsTagsSection } from '../components/SettingsTagsSection';
+import { SettingsToolPathsSection } from '../components/SettingsToolPathsSection';
 
 const RATING_COLOR_FIELDS: Array<{
   key: keyof Pick<
@@ -38,14 +39,7 @@ export function SettingsPage() {
   const [dismissedIds, setDismissedIds] = useState(() => getDismissedIds());
   const [resetMessage, setResetMessage] = useState<string | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
-  const [libraryStatus, setLibraryStatus] = useState<LibraryStatusDto | null>(null);
   const [backgroundMode, setBackgroundMode] = useState<BackgroundMode>(() => readBackgroundMode());
-
-  useEffect(() => {
-    void api.libraryStatus().then(setLibraryStatus).catch(() => {
-      /* leave null */
-    });
-  }, []);
 
   const handleReset = () => {
     resetDismissedModals();
@@ -89,22 +83,25 @@ export function SettingsPage() {
 
   return (
     <div className="app-shell settings-shell">
-      <header className="topbar topbar--menu-only">
+      <header className="topbar">
+        <Link className="topbar-link" to="/">
+          Back to library
+        </Link>
         <AppTopbar
           eyebrow="Perhaps I can't sing well, but it is..."
-          title="Settings"
-          trailing={
-            <Link className="topbar-link" to="/">
-              Back to library
-            </Link>
+          title={
+            <>
+              <span className="brand-kara">Kara</span>okej
+            </>
           }
+          trailing={null}
         />
       </header>
 
       <main className="settings-page">
         <SettingsTagsSection />
 
-        <section className="settings-section">
+        <section className="settings-panel">
           <h2>Queue</h2>
           <label className="settings-toggle">
             <input
@@ -121,7 +118,7 @@ export function SettingsPage() {
           {settingsError && <p className="settings-feedback error">{settingsError}</p>}
         </section>
 
-        <section className="settings-section">
+        <section className="settings-panel">
           <h2>Playback</h2>
           <label className="karaoke-slider-label">
             Crossfade
@@ -146,7 +143,7 @@ export function SettingsPage() {
           {settingsError && <p className="settings-feedback error">{settingsError}</p>}
         </section>
 
-        <section className="settings-section">
+        <section className="settings-panel">
           <h2>Star rating colors</h2>
           <p className="settings-copy">
             Rating ranges are fixed. Adjust the four colors used for library stars.
@@ -174,7 +171,7 @@ export function SettingsPage() {
           {settingsError && <p className="settings-feedback error">{settingsError}</p>}
         </section>
 
-        <section className="settings-section">
+        <section className="settings-panel">
           <h2>Karaoke background</h2>
           <fieldset className="settings-fieldset">
             <legend className="sr-only">Karaoke background</legend>
@@ -197,26 +194,9 @@ export function SettingsPage() {
           </p>
         </section>
 
-        <section className="settings-section">
-          <h2>Download helper</h2>
-          <p className="settings-copy">
-            {libraryStatus?.ytdlpAvailable
-              ? `yt-dlp found at ${libraryStatus.ytdlpPath}`
-              : `yt-dlp not found at ${libraryStatus?.ytdlpPath ?? 'the configured path'}. Set YTDLP_PATH in .env if it is installed.`}
-          </p>
-          <p className="settings-copy">
-            {libraryStatus?.ytsaverAvailable
-              ? `YT Saver found at ${libraryStatus.ytsaverPath}`
-              : `YT Saver not found at ${libraryStatus?.ytsaverPath ?? 'the configured path'}. Set YTSAVER_PATH in .env if it is installed.`}
-          </p>
-          <p className="settings-copy">
-            {libraryStatus?.demucsAvailable
-              ? `Demucs found (${libraryStatus.demucsPath})`
-              : `Demucs not found (${libraryStatus?.demucsPath ?? 'demucs'}). Install with pipx install demucs or set DEMUCS_PATH in .env.`}
-          </p>
-        </section>
+        <SettingsToolPathsSection savedPaths={state.settings} />
 
-        <section className="settings-section">
+        <section className="settings-panel settings-panel--wide">
           <h2>Help dialogs</h2>
           <p className="settings-copy">
             Help dialogs can be hidden with &ldquo;Do not show again&rdquo;. Reset

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   SETTING_CROSSFADE_SECONDS,
   SETTING_CROSSFADE_SECONDS_PREF,
@@ -14,10 +14,14 @@ describe('SettingsService', () => {
   let db: TestDbService;
   let cleanup: () => void;
   let settings: SettingsService;
+  let clearToolPathOverrideCache: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     ({ db, cleanup } = createTestDb());
-    settings = new SettingsService(db as never);
+    clearToolPathOverrideCache = vi.fn();
+    settings = new SettingsService(db as never, {
+      clearToolPathOverrideCache,
+    } as never);
   });
 
   afterEach(() => {
@@ -33,7 +37,21 @@ describe('SettingsService', () => {
       ratingSilver: '#c8d0dc',
       ratingBlue: '#3b82f6',
       ratingRaspberry: '#e11d74',
+      ytdlpPath: '',
+      ffmpegPath: '',
+      ffprobePath: '',
+      ytdlpNodePath: '',
+      ytsaverPath: '',
+      demucsPath: '',
     });
+  });
+
+  it('persists tool path overrides and clears config cache', () => {
+    settings.patch({ ytdlpPath: '/custom/yt-dlp.exe' });
+    expect(settings.get().ytdlpPath).toBe('/custom/yt-dlp.exe');
+    expect(clearToolPathOverrideCache).toHaveBeenCalled();
+    settings.patch({ ytdlpPath: '  ' });
+    expect(settings.get().ytdlpPath).toBe('');
   });
 
   it('clamps crossfade seconds to 0 through 10', () => {

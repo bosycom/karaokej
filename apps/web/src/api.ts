@@ -21,6 +21,9 @@ import {
   QueueItemDto,
   RandomArtistDto,
   SessionStateDto,
+  ToolCheckResultDto,
+  ToolId,
+  ToolPathsStatusDto,
   ImportTagsResultDto,
   ManagedTagDto,
   TagListDto,
@@ -319,6 +322,12 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify(partial),
     }),
+  toolPathsStatus: () => request<ToolPathsStatusDto>('/api/settings/tools'),
+  checkTool: (tool: ToolId) =>
+    request<ToolCheckResultDto>('/api/settings/tools/check', {
+      method: 'POST',
+      body: JSON.stringify({ tool }),
+    }),
   playlists: () => request<PlaylistSummaryDto[]>('/api/playlists'),
   playlist: (id: number) => request<PlaylistDetailDto>(`/api/playlists/${id}`),
   createPlaylist: (name: string, description?: string | null) =>
@@ -477,6 +486,12 @@ export const emptySession: SessionStateDto = {
     ratingSilver: DEFAULT_RATING_SILVER,
     ratingBlue: DEFAULT_RATING_BLUE,
     ratingRaspberry: DEFAULT_RATING_RASPBERRY,
+    ytdlpPath: '',
+    ffmpegPath: '',
+    ffprobePath: '',
+    ytdlpNodePath: '',
+    ytsaverPath: '',
+    demucsPath: '',
   },
   karaoke: defaultKaraokeState(),
 };
