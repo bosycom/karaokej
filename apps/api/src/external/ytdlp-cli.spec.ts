@@ -60,15 +60,15 @@ describe('buildYoutubeSearchArgs', () => {
 
 describe('buildYoutubeDownloadArgs', () => {
   const ytdlp = '/mnt/c/Program Files/yt-dlp/yt-dlp.exe';
-  const ffmpeg = '/mnt/c/Program Files/YT Saver/ffmpeg.exe';
+  const ffmpeg = '/code/karaokej/vendor/win/bin/ffmpeg.exe';
   const outputDir = '/mnt/a/Music/Downloads';
   const nodePath = '/mnt/c/Program Files/nodejs/node.exe';
 
   beforeEach(() => {
     mockWslpath({
       '/mnt/a/Music/Downloads': 'D:\\Audio\\Music\\Downloads',
-      '/mnt/c/Program Files/YT Saver/ffmpeg.exe':
-        'C:\\Program Files\\YT Saver\\ffmpeg.exe',
+      '/code/karaokej/vendor/win/bin/ffmpeg.exe':
+        '\\\\wsl.localhost\\Debian\\code\\karaokej\\vendor\\win\\bin\\ffmpeg.exe',
       '/mnt/c/Program Files/nodejs/node.exe': 'C:\\Program Files\\nodejs\\node.exe',
     });
   });
@@ -90,7 +90,9 @@ describe('buildYoutubeDownloadArgs', () => {
     expect(args).toContain('--audio-format');
     expect(args[args.indexOf('--audio-format') + 1]).toBe('mp3');
     expect(args.at(-1)).toBe('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
-    expect(args).toContain('C:\\Program Files\\YT Saver\\ffmpeg.exe');
+    expect(args).toContain(
+      '\\\\wsl.localhost\\Debian\\code\\karaokej\\vendor\\win\\bin\\ffmpeg.exe',
+    );
     expect(args).toContain(
       'D:\\Audio\\Music\\Downloads/%(title)s [%(id)s].%(ext)s',
     );

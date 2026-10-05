@@ -4,6 +4,7 @@ import {
   assertYoutubeVideoId,
   ffmpegLocationForYtdlp,
   jsRuntimeArgForYtdlp,
+  resolveFfmpegForYtdlp,
   pathForYtdlpExecutable,
   toWindowsPath,
   wslToWinPath,
@@ -132,8 +133,8 @@ describe('ffmpegLocationForYtdlp', () => {
   beforeEach(() => {
     vi.mocked(spawnSync).mockReset();
     mockWslpath({
-      '/mnt/c/Program Files/YT Saver/ffmpeg.exe':
-        'C:\\Program Files\\YT Saver\\ffmpeg.exe',
+      '/code/karaokej/vendor/win/bin/ffmpeg.exe':
+        '\\\\wsl.localhost\\Debian\\code\\karaokej\\vendor\\win\\bin\\ffmpeg.exe',
     });
   });
 
@@ -145,9 +146,40 @@ describe('ffmpegLocationForYtdlp', () => {
     expect(
       ffmpegLocationForYtdlp(
         '/mnt/c/Program Files/yt-dlp/yt-dlp.exe',
-        '/mnt/c/Program Files/YT Saver/ffmpeg.exe',
+        '/code/karaokej/vendor/win/bin/ffmpeg.exe',
       ),
-    ).toBe('C:\\Program Files\\YT Saver\\ffmpeg.exe');
+    ).toBe('\\\\wsl.localhost\\Debian\\code\\karaokej\\vendor\\win\\bin\\ffmpeg.exe');
+  });
+});
+
+describe('resolveFfmpegForYtdlp', () => {
+  const ytdlpExe = '/mnt/c/Program Files/yt-dlp/yt-dlp.exe';
+  const bundled = '/code/karaokej/vendor/win/bin/ffmpeg.exe';
+
+  it('keeps a Linux ffmpeg for a native yt-dlp', () => {
+    expect(resolveFfmpegForYtdlp('/usr/bin/yt-dlp', '/usr/bin/ffmpeg', bundled)).toBe(
+      '/usr/bin/ffmpeg',
+    );
+  });
+
+  it('uses the vendored Windows ffmpeg when yt-dlp is an exe and ffmpeg is Linux', () => {
+    expect(resolveFfmpegForYtdlp(ytdlpExe, '/usr/bin/ffmpeg', bundled)).toBe(bundled);
+  });
+
+  it('keeps an explicit Windows ffmpeg.exe', () => {
+    expect(
+      resolveFfmpegForYtdlp(ytdlpExe, '/mnt/c/ffmpeg/bin/ffmpeg.exe', bundled),
+    ).toBe('/mnt/c/ffmpeg/bin/ffmpeg.exe');
+  });
+
+  it('does not use YT Saver ffmpeg', () => {
+    expect(
+      resolveFfmpegForYtdlp(
+        ytdlpExe,
+        '/mnt/c/Program Files/YT Saver/ffmpeg.exe',
+        bundled,
+      ),
+    ).toBe(bundled);
   });
 });
 

@@ -96,7 +96,7 @@ export class YtdlpService {
     try {
       const args = buildYoutubeDownloadArgs(
         this.config.ytdlpPath,
-        this.config.ffmpegPath,
+        this.config.ytdlpFfmpegPath,
         downloadsDir,
         id,
         this.config.ytdlpAudioFormat,

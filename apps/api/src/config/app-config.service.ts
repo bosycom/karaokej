@@ -8,6 +8,7 @@ import {
   resolveUnderLibraries,
   type LibraryPathLayout,
 } from '../library/library-paths';
+import { resolveFfmpegForYtdlp, isYtSaverPath } from '../external/ytdlp-path-utils';
 import { findCommandOnPath } from './path-lookup';
 import { readPortableConfig } from './portable-config';
 
@@ -114,13 +115,34 @@ export class AppConfigService {
 
   get ffmpegPath(): string {
     const raw = this.config.get<string>('FFMPEG_PATH')?.trim();
-    if (raw) {
+    if (raw && !isYtSaverPath(raw)) {
       return isAbsolute(raw) ? raw : resolve(this.repoRoot, raw);
     }
     if (existsSync('/usr/bin/ffmpeg')) {
       return '/usr/bin/ffmpeg';
     }
-    return '/mnt/c/Program Files/YT Saver/ffmpeg.exe';
+    const bundled = this.bundledWindowsFfmpegPath();
+    if (existsSync(bundled)) {
+      return bundled;
+    }
+    return 'ffmpeg';
+  }
+
+  /**
+   * ffmpeg for yt-dlp post-processing. A Windows yt-dlp.exe cannot run
+   * /usr/bin/ffmpeg, so use the vendored Windows build instead.
+   */
+  get ytdlpFfmpegPath(): string {
+    const bundled = this.bundledWindowsFfmpegPath();
+    return resolveFfmpegForYtdlp(
+      this.ytdlpPath,
+      this.ffmpegPath,
+      existsSync(bundled) ? bundled : null,
+    );
+  }
+
+  private bundledWindowsFfmpegPath(): string {
+    return resolve(this.repoRoot, 'vendor/win/bin/ffmpeg.exe');
   }
 
   get ffprobePath(): string {

@@ -29,7 +29,7 @@ describe('YtdlpService', () => {
   };
   const config = {
     ytdlpPath: '/mnt/c/Program Files/yt-dlp/yt-dlp.exe',
-    ffmpegPath: '/mnt/c/Program Files/YT Saver/ffmpeg.exe',
+    ytdlpFfmpegPath: '/code/karaokej/vendor/win/bin/ffmpeg.exe',
     ytdlpAudioFormat: 'mp3',
     ytdlpNodePath: '/mnt/c/Program Files/nodejs/node.exe',
     libraryPaths: ['/mnt/a/Music'],

@@ -35,6 +35,39 @@ export function ffmpegLocationForYtdlp(
   return pathForYtdlpExecutable(ytdlpPath, ffmpegPath);
 }
 
+export function isYtSaverPath(filePath: string): boolean {
+  return /(?:^|[\\/])YT Saver(?:[\\/]|$)/i.test(filePath);
+}
+
+/**
+ * Windows yt-dlp.exe cannot run a Linux ffmpeg. Use a Windows ffmpeg.exe
+ * the project owns (or an explicit non-YT-Saver FFMPEG_PATH).
+ */
+export function resolveFfmpegForYtdlp(
+  ytdlpPath: string,
+  ffmpegPath: string,
+  bundledWindowsFfmpeg: string | null,
+): string {
+  const windowsYtdlp = ytdlpPath.toLowerCase().endsWith('.exe');
+  const configured =
+    ffmpegPath && !isYtSaverPath(ffmpegPath) ? ffmpegPath : null;
+  const bundled =
+    bundledWindowsFfmpeg && !isYtSaverPath(bundledWindowsFfmpeg)
+      ? bundledWindowsFfmpeg
+      : null;
+
+  if (!windowsYtdlp) {
+    return configured ?? bundled ?? 'ffmpeg';
+  }
+  if (configured?.toLowerCase().endsWith('.exe')) {
+    return configured;
+  }
+  if (bundled) {
+    return bundled;
+  }
+  return configured ?? 'ffmpeg';
+}
+
 export function jsRuntimeArgForYtdlp(
   ytdlpPath: string,
   nodePath: string,
