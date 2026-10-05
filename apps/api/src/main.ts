@@ -11,6 +11,7 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     cors: true,
   });
+  app.enableShutdownHooks();
   app.setGlobalPrefix('api');
   app.useWebSocketAdapter(new WsAdapter(app));
 

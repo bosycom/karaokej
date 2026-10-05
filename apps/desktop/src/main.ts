@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
@@ -7,6 +7,7 @@ const API_PORT = 3000;
 const API_HOST = '127.0.0.1';
 
 let apiProcess: ChildProcess | null = null;
+let apiPid: number | null = null;
 let mainWindow: BrowserWindow | null = null;
 
 function karaokeRoot(): string {
@@ -76,8 +77,10 @@ function startApi(): void {
     cwd: packagedAppRoot(),
     env: buildApiEnv(),
     stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
   });
   apiProcess = child;
+  apiPid = child.pid ?? null;
   child.stdout?.on('data', (chunk: Buffer) => {
     process.stdout.write(`[api] ${chunk}`);
   });
@@ -89,18 +92,45 @@ function startApi(): void {
       console.error(`API exited with code ${code} signal ${signal ?? ''}`);
     }
     apiProcess = null;
+    apiPid = null;
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('karaokej:api-exited', { code, signal });
     }
   });
 }
 
-function stopApi(): void {
-  if (!apiProcess) {
+function killProcessTree(pid: number, force: boolean): void {
+  if (process.platform === 'win32') {
+    const args = force
+      ? ['/PID', String(pid), '/T', '/F']
+      : ['/PID', String(pid), '/T'];
+    spawnSync('taskkill', args, { windowsHide: true, stdio: 'ignore' });
     return;
   }
-  apiProcess.kill('SIGTERM');
+  try {
+    process.kill(pid, force ? 'SIGKILL' : 'SIGTERM');
+  } catch {
+    /* already gone */
+  }
+}
+
+function stopApi(force = false): void {
+  const proc = apiProcess;
+  const pid = proc?.pid ?? apiPid;
   apiProcess = null;
+  if (pid == null) {
+    apiPid = null;
+    return;
+  }
+
+  try {
+    proc?.kill(force ? 'SIGKILL' : 'SIGTERM');
+  } catch {
+    /* already gone */
+  }
+
+  killProcessTree(pid, force);
+  apiPid = null;
 }
 
 function windowIconPath(): string | undefined {
@@ -138,6 +168,10 @@ function createWindow(): void {
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url);
     return { action: 'deny' };
+  });
+
+  mainWindow.on('closed', () => {
+    mainWindow = null;
   });
 
   void mainWindow.loadURL(`http://${API_HOST}:${API_PORT}/`);
@@ -180,6 +214,7 @@ if (!gotLock) {
 
     void boot().catch((err) => {
       console.error(err);
+      stopApi(true);
       dialog.showErrorBox(
         'Karaokej failed to start',
         err instanceof Error ? err.message : String(err),
@@ -189,11 +224,24 @@ if (!gotLock) {
   });
 
   app.on('window-all-closed', () => {
-    stopApi();
+    stopApi(true);
     app.quit();
   });
 
   app.on('before-quit', () => {
-    stopApi();
+    stopApi(true);
+  });
+
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+    process.on(signal, () => {
+      stopApi(true);
+      app.quit();
+    });
+  }
+
+  process.on('exit', () => {
+    if (apiPid != null) {
+      killProcessTree(apiPid, true);
+    }
   });
 }
