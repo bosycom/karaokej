@@ -1,5 +1,5 @@
 import { ReactNode } from 'react';
-import { FiPlay, FiX } from 'react-icons/fi';
+import { FiPause, FiPlay, FiX } from 'react-icons/fi';
 import { TrackDto } from '@karaokej/shared';
 import { formatDuration } from '../format';
 import { CoverArt } from './CoverArt';
@@ -9,6 +9,7 @@ import { TrackMain } from './TrackMain';
 interface WorkspaceTrackRowProps {
   track: TrackDto;
   onPlay?: () => void;
+  playing?: boolean;
   playDisabled?: boolean;
   onRemove: () => void;
   removeTitle?: string;
@@ -23,6 +24,7 @@ interface WorkspaceTrackRowProps {
 export function WorkspaceTrackRow({
   track,
   onPlay,
+  playing = false,
   playDisabled = false,
   onRemove,
   removeTitle = 'Remove',
@@ -33,7 +35,7 @@ export function WorkspaceTrackRow({
   labelMuted = false,
   onManageTags,
 }: WorkspaceTrackRowProps) {
-  const playTitle = `Play ${track.title}`;
+  const playTitle = playing ? `Pause ${track.title}` : `Play ${track.title}`;
   return (
     <>
       <CoverArt
@@ -49,14 +51,14 @@ export function WorkspaceTrackRow({
         {onPlay ? (
           <button
             type="button"
-            className="icon-btn"
+            className={`icon-btn${playing ? ' play-live' : ''}`}
             disabled={playDisabled}
             title={playTitle}
             aria-label={playTitle}
             onPointerDown={(event) => event.stopPropagation()}
             onClick={onPlay}
           >
-            <FiPlay aria-hidden />
+            {playing ? <FiPause aria-hidden /> : <FiPlay aria-hidden />}
           </button>
         ) : null}
         <button

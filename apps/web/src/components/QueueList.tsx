@@ -150,7 +150,14 @@ function SortableQueueItem({
     >
       <WorkspaceTrackRow
         track={item.track}
-        onPlay={() => void api.playItem(item.id)}
+        playing={current && state.playback.status === 'playing'}
+        onPlay={() => {
+          if (!current) {
+            void api.playItem(item.id);
+            return;
+          }
+          void (state.playback.status === 'playing' ? api.pause() : api.play());
+        }}
         onRemove={() => void api.removeFromQueue(item.id)}
         onShowCover={onShowCover}
         onApplySearchTerm={onApplySearchTerm}

@@ -132,7 +132,7 @@ export function DraggableTrackRow({
         />
         <button
           type="button"
-          className="icon-btn"
+          className={`icon-btn${isCurrentPlaying ? ' play-live' : ''}`}
           title={isCurrentPlaying ? `Pause ${track.title}` : `Play ${track.title}`}
           aria-label={isCurrentPlaying ? `Pause ${track.title}` : `Play ${track.title}`}
           onClick={() => {
