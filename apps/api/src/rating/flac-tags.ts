@@ -6,6 +6,7 @@ import {
   applyMetadataComments,
   parseVorbisCommentPacket,
   serializeVorbisCommentPacket,
+  setMoodComments,
   setRatingComment,
   type VorbisMetadataInput,
 } from './vorbis-comment';
@@ -211,6 +212,37 @@ export async function writeFlacMetadata(
   const { blocks, audioOffset } = await readBlocks(absolutePath);
   const updated = applyVorbisMetadata(blocks, metadata);
   await writeFlacBlocks(absolutePath, updated, audioOffset);
+}
+
+function applyMood(blocks: FlacBlock[], values: string[]): FlacBlock[] {
+  const next = blocks.map((block) => ({ ...block }));
+  const index = next.findIndex((block) => block.type === BLOCK_VORBIS_COMMENT);
+  if (index >= 0) {
+    const parsed = parseVorbisCommentPacket(next[index].data);
+    next[index] = {
+      type: BLOCK_VORBIS_COMMENT,
+      data: serializeVorbisCommentPacket(
+        parsed.vendor,
+        setMoodComments(parsed.comments, values),
+      ),
+    };
+    return next;
+  }
+  const comment = {
+    type: BLOCK_VORBIS_COMMENT,
+    data: serializeVorbisCommentPacket('karaokej', setMoodComments([], values)),
+  };
+  const insertAt = next.length > 0 ? 1 : 0;
+  next.splice(insertAt, 0, comment);
+  return next;
+}
+
+export async function writeFlacMoods(
+  absolutePath: string,
+  values: string[],
+): Promise<void> {
+  const { blocks, audioOffset } = await readBlocks(absolutePath);
+  await writeFlacBlocks(absolutePath, applyMood(blocks, values), audioOffset);
 }
 
 export async function writeFlacRating(

@@ -8,6 +8,7 @@ import {
 } from './id3-region';
 import { safePatchRegion, safeReplaceWithBuffer } from './safe-file-write';
 import type { EditableTrackMetadata } from '../metadata/metadata-fields';
+import { readMoodValues, writeMoodValues } from './id3-mood';
 import { internalToPopm, POPM_EMAIL } from './rating-scale';
 
 function mp3TagPayload(
@@ -57,12 +58,23 @@ function verifyTagArea(tagBytes: number): (path: string) => Promise<void> {
 async function applyMp3Tags(
   absolutePath: string,
   buildTags: (existing: NodeID3.Tags) => NodeID3.Tags,
+  moods?: string[],
 ): Promise<void> {
   const original = await readFile(absolutePath);
-  const updated = NodeID3.update(buildTags(NodeID3.read(original)), original);
-  if (updated instanceof Error) {
-    throw updated;
+  const updatedRaw = NodeID3.update(buildTags(NodeID3.read(original)), original);
+  if (updatedRaw instanceof Error) {
+    throw updatedRaw;
   }
+  const nextMoods = moods ?? readMoodValues(original);
+  let tagged: Buffer = updatedRaw;
+  if (!readId3Region(tagged) && nextMoods.length > 0) {
+    const seeded = NodeID3.update({ mood: nextMoods[0] }, tagged);
+    if (seeded instanceof Error) {
+      throw seeded;
+    }
+    tagged = seeded;
+  }
+  const updated = writeMoodValues(tagged, nextMoods);
 
   const existing = readId3Region(original);
   const next = readId3Region(updated);
@@ -97,6 +109,13 @@ export async function writeMp3Metadata(
   await applyMp3Tags(absolutePath, (existing) =>
     mp3TagPayload(metadata, existing.popularimeter?.counter ?? 0),
   );
+}
+
+export async function writeMp3Moods(
+  absolutePath: string,
+  values: string[],
+): Promise<void> {
+  await applyMp3Tags(absolutePath, () => ({}), values);
 }
 
 export async function writeMp3Rating(

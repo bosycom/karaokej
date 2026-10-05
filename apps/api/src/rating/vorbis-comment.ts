@@ -74,6 +74,17 @@ export function serializeVorbisCommentPacket(
   return out;
 }
 
+export function setMoodComments(
+  comments: VorbisComment[],
+  values: string[],
+): VorbisComment[] {
+  const next = comments.filter((comment) => comment.key.toUpperCase() !== 'MOOD');
+  for (const value of values) {
+    next.push({ key: 'MOOD', value });
+  }
+  return next;
+}
+
 export function setRatingComment(
   comments: VorbisComment[],
   rating: number,

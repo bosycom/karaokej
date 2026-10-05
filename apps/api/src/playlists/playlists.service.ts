@@ -13,6 +13,7 @@ import {
 import { DbService } from '../db/db.service';
 import { PlaylistItemRow, PlaylistRow, TrackRow, trackToDto } from '../db/types';
 import { coverInfoForTrack, loadCoverInfoForTracks } from '../covers/cover-lookup';
+import { loadManagedTagNames } from '../tags/tag-cache';
 import { QueueService } from '../queue/queue.service';
 
 @Injectable()
@@ -109,11 +110,21 @@ export class PlaylistsService {
     trackId: number,
     beforeItemId?: number,
   ): PlaylistDetailDto {
+    return this.addItems(playlistId, [trackId], beforeItemId);
+  }
+
+  addItems(
+    playlistId: number,
+    trackIds: number[],
+    beforeItemId?: number,
+  ): PlaylistDetailDto {
     this.getPlaylistRow(playlistId);
-    const track = this.db.raw
-      .prepare(`SELECT id FROM tracks WHERE id = ?`)
-      .get(trackId) as { id: number } | undefined;
-    if (!track) {
+    if (trackIds.length === 0) {
+      return this.get(playlistId);
+    }
+    const stmt = this.db.raw.prepare(`SELECT id FROM tracks WHERE id = ?`);
+    const validated = trackIds.filter((id) => Boolean(stmt.get(id)));
+    if (validated.length === 0) {
       throw new NotFoundException('Track not found');
     }
     const now = Date.now();
@@ -127,31 +138,29 @@ export class PlaylistsService {
             .get(beforeItemId, playlistId) as
             | { id: number; position: number }
             | undefined);
+    const insert = this.db.raw.prepare(
+      `INSERT INTO playlist_items (playlist_id, track_id, position, added_at)
+       VALUES (?, ?, ?, ?)`,
+    );
     if (before) {
       this.db.raw
         .prepare(
-          `UPDATE playlist_items SET position = position + 1
+          `UPDATE playlist_items SET position = position + ?
            WHERE playlist_id = ? AND position >= ?`,
         )
-        .run(playlistId, before.position);
-      this.db.raw
-        .prepare(
-          `INSERT INTO playlist_items (playlist_id, track_id, position, added_at)
-           VALUES (?, ?, ?, ?)`,
-        )
-        .run(playlistId, trackId, before.position, now);
+        .run(validated.length, playlistId, before.position);
+      validated.forEach((trackId, index) => {
+        insert.run(playlistId, trackId, before.position + index, now);
+      });
     } else {
       const max = this.db.raw
         .prepare(
           `SELECT COALESCE(MAX(position), 0) AS n FROM playlist_items WHERE playlist_id = ?`,
         )
         .get(playlistId) as { n: number };
-      this.db.raw
-        .prepare(
-          `INSERT INTO playlist_items (playlist_id, track_id, position, added_at)
-           VALUES (?, ?, ?, ?)`,
-        )
-        .run(playlistId, trackId, max.n + 1, now);
+      validated.forEach((trackId, index) => {
+        insert.run(playlistId, trackId, max.n + 1 + index, now);
+      });
     }
     this.touchPlaylist(playlistId, now);
     return this.get(playlistId);
@@ -253,13 +262,22 @@ export class PlaylistsService {
     >;
 
     const coverByGroup = loadCoverInfoForTracks(this.db.raw, rows);
+    const tagsByTrack = loadManagedTagNames(
+      this.db.raw,
+      rows.map((row) => row.id),
+    );
 
     return rows.map((row) => ({
       id: row.item_id,
       position: row.item_position,
       addedAt: new Date(row.item_added_at).toISOString(),
       available: row.available === 1,
-      track: trackToDto(row, null, coverInfoForTrack(coverByGroup, row)),
+      track: trackToDto(
+        row,
+        null,
+        coverInfoForTrack(coverByGroup, row),
+        tagsByTrack.get(row.id) ?? [],
+      ),
     }));
   }
 

@@ -14,6 +14,9 @@ import { isInteractiveTrackTarget, TrackMain } from './TrackMain';
 
 interface DraggableTrackRowProps {
   track: TrackDto;
+  selected: boolean;
+  batchDragging: boolean;
+  batchTrackIds: number[];
   fetching: boolean;
   onFetchLyrics: (trackId: number) => void;
   onRate: (trackId: number, rating: number) => void;
@@ -23,10 +26,15 @@ interface DraggableTrackRowProps {
   onRemoveAiStem: (track: TrackDto) => void;
   onDeleteFile: (track: TrackDto) => void;
   onShowCover: (track: TrackDto) => void;
+  onManageTags: (track: TrackDto) => void;
+  onToggleSelect: (track: TrackDto) => void;
 }
 
 export function DraggableTrackRow({
   track,
+  selected,
+  batchDragging,
+  batchTrackIds,
   fetching,
   onFetchLyrics,
   onRate,
@@ -36,12 +44,15 @@ export function DraggableTrackRow({
   onRemoveAiStem,
   onDeleteFile,
   onShowCover,
+  onManageTags,
+  onToggleSelect,
 }: DraggableTrackRowProps) {
   const { state } = useSession();
   const { listeners, setNodeRef, isDragging } = useDraggable({
     id: trackDragId(track.id),
-    data: { kind: 'track', track },
+    data: { kind: 'track', track, trackIds: batchTrackIds },
   });
+  const showDragging = isDragging || batchDragging;
   const stemBadge = karaokeStemBadge(track.karaokeStemStatus);
   const tagsPending = track.metadataStatus === 'pending';
   const isCurrentPlaying =
@@ -56,7 +67,16 @@ export function DraggableTrackRow({
   return (
     <li
       ref={setNodeRef}
-      className={isDragging ? 'dragging' : undefined}
+      className={`${selected ? 'selected' : ''}${showDragging ? ' dragging' : ''}`.trim() || undefined}
+      onClick={(event) => {
+        if (event.detail > 1) {
+          return;
+        }
+        if (isInteractiveTrackTarget(event.target)) {
+          return;
+        }
+        onToggleSelect(track);
+      }}
       onDoubleClick={(event) => {
         if (isInteractiveTrackTarget(event.target)) {
           return;
@@ -64,7 +84,12 @@ export function DraggableTrackRow({
         onPlay(track);
       }}
     >
-      <CoverArt track={track} size={48} onClick={() => onShowCover(track)} />
+      <CoverArt
+        track={track}
+        size={48}
+        fillRow={track.tags.length > 0}
+        onClick={() => onShowCover(track)}
+      />
       <TrackMain
         track={track}
         title="Drag to add to queue"
@@ -124,6 +149,11 @@ export function DraggableTrackRow({
               id: 'edit-metadata',
               label: 'Edit metadata',
               onSelect: () => onEditMetadata(track),
+            },
+            {
+              id: 'manage-tags',
+              label: 'Manage tags',
+              onSelect: () => onManageTags(track),
             },
             {
               id: 'artist-bio',

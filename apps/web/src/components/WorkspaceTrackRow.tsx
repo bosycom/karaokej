@@ -3,6 +3,7 @@ import { FiPlay, FiX } from 'react-icons/fi';
 import { TrackDto } from '@karaokej/shared';
 import { formatDuration } from '../format';
 import { CoverArt } from './CoverArt';
+import { IconMenu } from './IconMenu';
 import { TrackMain } from './TrackMain';
 
 interface WorkspaceTrackRowProps {
@@ -16,6 +17,7 @@ interface WorkspaceTrackRowProps {
   onApplySearchTerm?: (term: string) => void;
   extras?: ReactNode;
   labelMuted?: boolean;
+  onManageTags?: (track: TrackDto) => void;
 }
 
 export function WorkspaceTrackRow({
@@ -29,6 +31,7 @@ export function WorkspaceTrackRow({
   onApplySearchTerm,
   extras,
   labelMuted = false,
+  onManageTags,
 }: WorkspaceTrackRowProps) {
   const playTitle = `Play ${track.title}`;
   return (
@@ -36,6 +39,7 @@ export function WorkspaceTrackRow({
       <CoverArt
         track={track}
         size={32}
+        fillRow={track.tags.length > 0}
         onClick={onShowCover ? () => onShowCover(track) : undefined}
       />
       <TrackMain track={track} muted={labelMuted} onApplySearchTerm={onApplySearchTerm} />
@@ -65,6 +69,20 @@ export function WorkspaceTrackRow({
         >
           <FiX aria-hidden />
         </button>
+        {onManageTags ? (
+          <div onPointerDown={(event) => event.stopPropagation()}>
+            <IconMenu
+              ariaLabel={`Actions for ${track.title}`}
+              items={[
+                {
+                  id: 'manage-tags',
+                  label: 'Manage tags',
+                  onSelect: () => onManageTags(track),
+                },
+              ]}
+            />
+          </div>
+        ) : null}
       </div>
     </>
   );

@@ -10,6 +10,7 @@ describe('applyMetadataComments', () => {
     const comments = applyMetadataComments(
       [
         { key: 'CUSTOM', value: 'keep-me' },
+        { key: 'MOOD', value: 'Party' },
         { key: 'ARTIST', value: 'Old Artist' },
       ],
       {
@@ -24,6 +25,7 @@ describe('applyMetadataComments', () => {
       },
     );
     expect(comments).toContainEqual({ key: 'CUSTOM', value: 'keep-me' });
+    expect(comments).toContainEqual({ key: 'MOOD', value: 'Party' });
     expect(comments).toContainEqual({ key: 'TITLE', value: 'New Title' });
     expect(comments).toContainEqual({ key: 'ARTIST', value: 'New Artist' });
     expect(comments).toContainEqual({ key: 'ALBUM', value: 'New Album' });

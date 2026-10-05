@@ -12,6 +12,8 @@ interface CoverArtProps {
   variant?: CoverSize;
   onClick?: () => void;
   className?: string;
+  /** Stretch the cover to the row so it covers title, artist, and tags. */
+  fillRow?: boolean;
 }
 
 export function CoverArt({
@@ -20,6 +22,7 @@ export function CoverArt({
   variant = 'sm',
   onClick,
   className,
+  fillRow = false,
 }: CoverArtProps) {
   const url = coverUrl(track, variant);
   const [failed, setFailed] = useState(false);
@@ -51,15 +54,17 @@ export function CoverArt({
       <CoverPlaceholder seed={seed} size={size} className={className} />
     );
 
+  const buttonClass = fillRow ? 'cover-art-button cover-art-fill' : 'cover-art-button';
+
   if (!onClick) {
-    return visual;
+    return fillRow ? <span className={buttonClass}>{visual}</span> : visual;
   }
 
   return (
     <button
       type="button"
-      className="cover-art-button"
-      style={{ width: size, height: size }}
+      className={buttonClass}
+      style={fillRow ? undefined : { width: size, height: size }}
       title={label}
       aria-label={label}
       onClick={onClick}

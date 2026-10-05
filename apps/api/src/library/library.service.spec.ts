@@ -476,3 +476,49 @@ describe('LibraryService.deleteTrackFile', () => {
     ).toEqual({ c: 1 });
   });
 });
+
+describe('LibraryService.search tags', () => {
+  let db: TestDbService;
+  let cleanup: () => void;
+  let library: LibraryService;
+
+  beforeEach(() => {
+    ({ db, cleanup } = createTestDb());
+    library = new LibraryService(
+      db as never,
+      { libraryPaths: [] } as never,
+      createMockSession(db),
+      createMockSeparation(),
+    );
+    const now = Date.now();
+    db.raw
+      .prepare(
+        `INSERT INTO managed_tags (name, name_key, created_at, updated_at) VALUES (?, ?, ?, ?)`,
+      )
+      .run('Party', 'party', now, now);
+    db.raw
+      .prepare(
+        `INSERT INTO managed_tags (name, name_key, created_at, updated_at) VALUES (?, ?, ?, ?)`,
+      )
+      .run('Duet', 'duet', now, now);
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('keeps songs that have every selected tag', () => {
+    const both = insertTrack(db, { relativePath: 'both.mp3', title: 'Both' });
+    const party = insertTrack(db, { relativePath: 'party.mp3', title: 'Party Only' });
+    const insert = db.raw.prepare(
+      `INSERT INTO track_tag_names (track_id, name_key, name) VALUES (?, ?, ?)`,
+    );
+    insert.run(both, 'party', 'Party');
+    insert.run(both, 'duet', 'Duet');
+    insert.run(party, 'party', 'Party');
+
+    const page = library.search('', 1, 50, undefined, false, ['party', 'duet']);
+    expect(page.items.map((item) => item.title)).toEqual(['Both']);
+    expect(page.items[0]?.tags).toEqual(['Duet', 'Party']);
+  });
+});

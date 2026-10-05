@@ -18,6 +18,7 @@ interface QueueListProps {
   dropLine?: DropLine | null;
   onShowCover?: (track: QueueItemDto['track']) => void;
   onApplySearchTerm?: (term: string) => void;
+  onManageTags?: (track: QueueItemDto['track']) => void;
   revealQueueItemId?: number | null;
   onRevealQueueItem?: () => void;
 }
@@ -28,6 +29,7 @@ export function QueueList({
   dropLine = null,
   onShowCover,
   onApplySearchTerm,
+  onManageTags,
   revealQueueItemId = null,
   onRevealQueueItem,
 }: QueueListProps) {
@@ -82,6 +84,7 @@ export function QueueList({
             )}
             onShowCover={onShowCover}
             onApplySearchTerm={onApplySearchTerm}
+            onManageTags={onManageTags}
             itemRefs={itemRefs}
           />
         ))}
@@ -97,6 +100,7 @@ function SortableQueueItem({
   dropLineClassName,
   onShowCover,
   onApplySearchTerm,
+  onManageTags,
   itemRefs,
 }: {
   item: QueueItemDto;
@@ -105,6 +109,7 @@ function SortableQueueItem({
   dropLineClassName: string;
   onShowCover?: (track: QueueItemDto['track']) => void;
   onApplySearchTerm?: (term: string) => void;
+  onManageTags?: (track: QueueItemDto['track']) => void;
   itemRefs: MutableRefObject<Map<number, HTMLLIElement>>;
 }) {
   const { state } = useSession();
@@ -149,6 +154,7 @@ function SortableQueueItem({
         onRemove={() => void api.removeFromQueue(item.id)}
         onShowCover={onShowCover}
         onApplySearchTerm={onApplySearchTerm}
+        onManageTags={onManageTags}
         extras={
           <>
             {separation.kind === 'progress' && (

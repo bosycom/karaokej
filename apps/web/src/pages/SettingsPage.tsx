@@ -17,6 +17,7 @@ import {
 } from '../backgrounds/backgroundMode';
 import { api } from '../api';
 import { useSession } from '../session/SessionProvider';
+import { SettingsTagsSection } from '../components/SettingsTagsSection';
 
 const RATING_COLOR_FIELDS: Array<{
   key: keyof Pick<
@@ -101,6 +102,8 @@ export function SettingsPage() {
       </header>
 
       <main className="settings-page">
+        <SettingsTagsSection />
+
         <section className="settings-section">
           <h2>Queue</h2>
           <label className="settings-toggle">

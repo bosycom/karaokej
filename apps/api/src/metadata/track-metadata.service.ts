@@ -24,6 +24,7 @@ import {
   type TrackMetadataFileDto,
 } from './metadata-fields';
 import { writeMetadataToFile } from './metadata-tags';
+import { managedTagsForTrack } from '../tags/tag-cache';
 
 @Injectable()
 export class TrackMetadataService {
@@ -144,6 +145,11 @@ export class TrackMetadataService {
     if (!updated) {
       throw new NotFoundException('Track not found');
     }
-    return trackToDto(updated, null, loadCoverInfoForTrack(this.db.raw, updated));
+    return trackToDto(
+      updated,
+      null,
+      loadCoverInfoForTrack(this.db.raw, updated),
+      managedTagsForTrack(this.db.raw, updated.id),
+    );
   }
 }

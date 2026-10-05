@@ -17,6 +17,8 @@ export interface ParsedTrackMetadata {
   year: number | null;
   genres: string[];
   musicbrainzArtistId: string | null;
+  /** Raw Mood values from the file, before name rules. */
+  moodValues: string[];
 }
 
 export interface ScanChunkItem {

@@ -36,6 +36,7 @@ export interface TrackRow {
   metadata_status: 'pending' | 'ready';
   cover_group: string | null;
   musicbrainz_artist_id: string | null;
+  mood_extra?: string | null;
   available: number;
   created_at: number;
   updated_at: number;
@@ -65,6 +66,7 @@ export function trackToDto(
   row: TrackRow,
   karaokeStemStatus: AiProcessingStatus | null = null,
   cover: TrackCoverInfo | null = null,
+  tags: string[] = [],
 ): TrackDto {
   return {
     id: row.id,
@@ -88,6 +90,7 @@ export function trackToDto(
     coverVersion: cover?.hash ?? null,
     coverStatus: cover?.status ?? 'pending',
     musicbrainzArtistId: row.musicbrainz_artist_id ?? null,
+    tags,
   };
 }
 
@@ -106,6 +109,7 @@ export interface PlaybackRow {
   volume: number;
   player_client_id: string | null;
   seek_seq: number;
+  loop_queue: number;
   updated_at: number;
 }
 

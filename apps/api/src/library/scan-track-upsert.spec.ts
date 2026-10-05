@@ -64,6 +64,7 @@ describe('upsertTagsTrack', () => {
           year: 1999,
           genres: ['Rock'],
           musicbrainzArtistId: null,
+          moodValues: [],
         },
         now + 1,
       );

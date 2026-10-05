@@ -34,6 +34,8 @@ import { CoverService } from './covers/cover.service';
 import { AudioDbClient } from './artist-bio/audiodb.client';
 import { DeezerClient } from './artist-bio/deezer.client';
 import { ArtistBioService } from './artist-bio/artist-bio.service';
+import { TagsController } from './tags/tags.controller';
+import { TagsService } from './tags/tags.service';
 
 @Module({
   imports: [
@@ -57,6 +59,7 @@ import { ArtistBioService } from './artist-bio/artist-bio.service';
     ExternalController,
     KaraokeController,
     CoversController,
+    TagsController,
   ],
   providers: [
     AppConfigService,
@@ -82,6 +85,7 @@ import { ArtistBioService } from './artist-bio/artist-bio.service';
     AudioDbClient,
     DeezerClient,
     ArtistBioService,
+    TagsService,
   ],
 })
 export class AppModule {}

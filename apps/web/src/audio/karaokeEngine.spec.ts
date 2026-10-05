@@ -240,6 +240,7 @@ describe('KaraokeAudioEngine', () => {
         coverVersion: null,
         coverStatus: 'pending' as const,
         musicbrainzArtistId: null,
+        tags: [],
       },
     );
     await engine.sync();

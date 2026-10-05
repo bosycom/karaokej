@@ -17,6 +17,7 @@ import { TrackRow, trackToDto } from '../db/types';
 import { loadCoverInfoForTrack } from '../covers/cover-lookup';
 import { lyricPathFor, yieldEventLoop } from '../library/fs-utils';
 import { LibraryService } from '../library/library.service';
+import { managedTagsForTrack } from '../tags/tag-cache';
 import { SessionService } from '../session/session.service';
 import { LrclibClient, LrclibRecord } from './lrclib.client';
 import { parseLrc } from './lrc-parser';
@@ -94,7 +95,12 @@ export class LyricsService {
     if (!updated) {
       throw new NotFoundException('Track not found');
     }
-    return trackToDto(updated, null, loadCoverInfoForTrack(this.db.raw, updated));
+    return trackToDto(
+      updated,
+      null,
+      loadCoverInfoForTrack(this.db.raw, updated),
+      managedTagsForTrack(this.db.raw, updated.id),
+    );
   }
 
   async searchForTrack(trackId: number, q: string): Promise<LyricSearchResultDto> {
@@ -144,7 +150,12 @@ export class LyricsService {
     if (!updated) {
       throw new NotFoundException('Track not found');
     }
-    return trackToDto(updated, null, loadCoverInfoForTrack(this.db.raw, updated));
+    return trackToDto(
+      updated,
+      null,
+      loadCoverInfoForTrack(this.db.raw, updated),
+      managedTagsForTrack(this.db.raw, updated.id),
+    );
   }
 
   async markUnavailable(trackId: number): Promise<TrackDto> {
@@ -159,7 +170,12 @@ export class LyricsService {
     if (!updated) {
       throw new NotFoundException('Track not found');
     }
-    return trackToDto(updated, null, loadCoverInfoForTrack(this.db.raw, updated));
+    return trackToDto(
+      updated,
+      null,
+      loadCoverInfoForTrack(this.db.raw, updated),
+      managedTagsForTrack(this.db.raw, updated.id),
+    );
   }
 
   private async runFetch(): Promise<void> {

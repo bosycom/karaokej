@@ -2,6 +2,8 @@ import { basename, extname } from 'node:path';
 import { fallbackMetadata, makeFingerprint } from './fs-utils';
 import { sanitizeDurationMs } from './duration-utils';
 import { coverGroupKey } from '../covers/cover-group-key';
+import { clearTrackMoodCache, replaceTrackMoodCache } from '../tags/tag-cache';
+import { partitionMoodValues } from '../tags/mood-values';
 import type { ParsedTrackMetadata, ScanChunkItem } from './scan-ipc';
 
 interface DbLike {
@@ -109,6 +111,12 @@ export function upsertPathTrack(
     now,
     now,
   );
+  const row = db
+    .prepare(`SELECT id FROM tracks WHERE relative_path = ?`)
+    .get(item.relativePath) as { id: number } | undefined;
+  if (row) {
+    clearTrackMoodCache(db, row.id);
+  }
 }
 
 export function upsertTagsTrack(
@@ -185,4 +193,11 @@ export function upsertTagsTrack(
     now,
     now,
   );
+  const row = db
+    .prepare(`SELECT id FROM tracks WHERE relative_path = ?`)
+    .get(item.relativePath) as { id: number } | undefined;
+  if (row) {
+    const partitioned = partitionMoodValues(parsed.moodValues ?? []);
+    replaceTrackMoodCache(db, row.id, partitioned.valid, partitioned.extra);
+  }
 }

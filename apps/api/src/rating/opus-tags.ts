@@ -4,6 +4,7 @@ import {
   applyMetadataComments,
   parseVorbisCommentPacket,
   serializeVorbisCommentPacket,
+  setMoodComments,
   setRatingComment,
   type VorbisComment,
   type VorbisMetadataInput,
@@ -359,6 +360,15 @@ export async function writeOpusMetadata(
 ): Promise<void> {
   await updateOpusComments(absolutePath, (comments) =>
     applyMetadataComments(comments, metadata),
+  );
+}
+
+export async function writeOpusMoods(
+  absolutePath: string,
+  values: string[],
+): Promise<void> {
+  await updateOpusComments(absolutePath, (comments) =>
+    setMoodComments(comments, values),
   );
 }
 

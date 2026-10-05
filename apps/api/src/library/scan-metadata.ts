@@ -8,6 +8,7 @@ import {
   readAudioHeaderBuffer,
 } from './duration-utils';
 import { ratingFromMetadata } from '../rating/rating-tags';
+import { moodValuesFromNative } from '../tags/mood-values';
 import type { ParsedTrackMetadata } from './scan-ipc';
 
 function yearFromMetadata(common: {
@@ -66,6 +67,7 @@ function metadataFromParsed(
     year: yearFromMetadata(common),
     genres: genresFromMetadata(common),
     musicbrainzArtistId: musicbrainzArtistIdFromMetadata(common),
+    moodValues: moodValuesFromNative(meta.native as never),
   };
 }
 
@@ -103,6 +105,15 @@ async function parseTagsFromHeader(
   );
 }
 
+export async function readMoodValuesFromFile(
+  absolutePath: string,
+  relativePath: string,
+  fsTimeoutMs: number,
+): Promise<string[]> {
+  const meta = await parseTagsFromHeader(absolutePath, fsTimeoutMs, relativePath);
+  return moodValuesFromNative(meta.native as never);
+}
+
 export async function readTrackMetadata(
   absolutePath: string,
   relativePath: string,
@@ -132,6 +143,7 @@ export async function readTrackMetadata(
         year: null,
         genres: [],
         musicbrainzArtistId: null,
+        moodValues: [],
       },
     };
   }

@@ -81,6 +81,38 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
     if (!names.has('musicbrainz_artist_id')) {
       this.db.exec(`ALTER TABLE tracks ADD COLUMN musicbrainz_artist_id TEXT`);
     }
+    if (!names.has('mood_extra')) {
+      this.db.exec(`ALTER TABLE tracks ADD COLUMN mood_extra TEXT`);
+    }
+    const playbackColumns = this.db
+      .prepare(`PRAGMA table_info(playback_state)`)
+      .all() as Array<{ name: string }>;
+    const playbackNames = new Set(playbackColumns.map((col) => col.name));
+    if (!playbackNames.has('loop_queue')) {
+      this.db.exec(
+        `ALTER TABLE playback_state ADD COLUMN loop_queue INTEGER NOT NULL DEFAULT 0`,
+      );
+    }
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS managed_tags (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        name_key TEXT NOT NULL UNIQUE,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `);
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS track_tag_names (
+        track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+        name_key TEXT NOT NULL,
+        name TEXT NOT NULL,
+        PRIMARY KEY (track_id, name_key)
+      )
+    `);
+    this.db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_track_tag_names_key ON track_tag_names(name_key)`,
+    );
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_tracks_cover_group ON tracks(cover_group)`);
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_tracks_rating ON tracks(rating)`);
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_tracks_available ON tracks(available)`);

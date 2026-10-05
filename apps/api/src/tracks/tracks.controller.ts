@@ -22,7 +22,23 @@ import { SeparationService } from '../karaoke/separation.service';
 import { StreamService } from '../stream/stream.service';
 import { NotFoundException } from '@nestjs/common';
 import { ArtistBioService } from '../artist-bio/artist-bio.service';
-import { ArtistBioChooseDto } from '@karaokej/shared';
+import { ArtistBioChooseDto, parseTagName } from '@karaokej/shared';
+import { TagsService } from '../tags/tags.service';
+
+function tagKeysFromQuery(tags?: string | string[]): string[] {
+  const raw = tags == null ? [] : Array.isArray(tags) ? tags : tags.split(',');
+  const keys: string[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    const parsed = parseTagName(item);
+    if (!parsed || seen.has(parsed.key)) {
+      continue;
+    }
+    seen.add(parsed.key);
+    keys.push(parsed.key);
+  }
+  return keys;
+}
 
 @Controller('tracks')
 export class TracksController {
@@ -34,6 +50,7 @@ export class TracksController {
     private readonly metadata: TrackMetadataService,
     private readonly separation: SeparationService,
     private readonly artistBio: ArtistBioService,
+    private readonly tags: TagsService,
   ) {}
 
   @Get()
@@ -43,6 +60,8 @@ export class TracksController {
     @Query('limit') limit = '15',
     @Query('minRating') minRating?: string,
     @Query('hideDuplicates') hideDuplicates?: string,
+    @Query('tags') tags?: string | string[],
+    @Query('orderedIds') orderedIds?: string,
   ) {
     const parsed =
       minRating == null || minRating === '' ? undefined : Number(minRating);
@@ -50,13 +69,37 @@ export class TracksController {
       hideDuplicates === '1' ||
       hideDuplicates === 'true' ||
       hideDuplicates === 'yes';
+    const tagKeys = tagKeysFromQuery(tags);
+    if (
+      orderedIds === '1' ||
+      orderedIds === 'true' ||
+      orderedIds === 'yes'
+    ) {
+      return {
+        ids: this.library.orderedTrackIds(q, parsed, dedupe, tagKeys),
+      };
+    }
     return this.library.search(
       q,
       Number(page) || 1,
       Number(limit) || 15,
       parsed,
       dedupe,
+      tagKeys,
     );
+  }
+
+  @Get(':id/tags')
+  trackTags(@Param('id', ParseIntPipe) id: number) {
+    return this.tags.trackState(id);
+  }
+
+  @Put(':id/tags')
+  assignTags(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { names?: unknown },
+  ) {
+    return this.tags.assign(id, body?.names);
   }
 
   @Get(':id/audio')

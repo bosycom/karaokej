@@ -73,6 +73,7 @@ import {
 } from './scan-metadata';
 import { resolveReliableDurationMs } from './probe-duration';
 import { upsertPathTrack, upsertTagsTrack } from './scan-track-upsert';
+import { loadManagedTagNames } from '../tags/tag-cache';
 
 const LIBRARY_SCAN_ROOT_KEY = 'library_scan_root';
 
@@ -214,11 +215,16 @@ export class LibraryService implements OnModuleInit {
       rows.map((row) => row.id),
     );
     const coverByGroup = loadCoverInfoForTracks(this.db.raw, rows);
+    const tagsByTrack = loadManagedTagNames(
+      this.db.raw,
+      rows.map((row) => row.id),
+    );
     return rows.map((row) =>
       trackToDto(
         row,
         resolveStemStatusForTrack(row, stemByTrackId.get(row.id)),
         coverInfoForTrack(coverByGroup, row),
+        tagsByTrack.get(row.id) ?? [],
       ),
     );
   }
@@ -431,7 +437,7 @@ export class LibraryService implements OnModuleInit {
     if (!row) {
       throw new BadRequestException('Failed to index downloaded file');
     }
-    return trackToDto(row, null, loadCoverInfoForTrack(this.db.raw, row));
+    return this.tracksToDto([row])[0];
   }
 
   backfillDurationIfMissing(trackId: number): void {
@@ -491,6 +497,7 @@ export class LibraryService implements OnModuleInit {
     limit: number,
     minRating?: number,
     hideDuplicates = false,
+    tagKeys: string[] = [],
   ): TrackPageDto {
     const safePage = Math.max(1, page);
     const safeLimit = Math.min(100, Math.max(1, limit));
@@ -500,16 +507,19 @@ export class LibraryService implements OnModuleInit {
     const ratingSql = rating == null ? '' : ' AND rating >= ?';
     const ratingParams = rating == null ? [] : [rating];
     const availableSql = ' AND available = 1';
+    const tagsFor = (idExpr: string) => this.tagFilterSql(idExpr, tagKeys);
 
     if (!query) {
-      const baseWhere = `1=1${availableSql}${ratingSql}`;
+      const tags = tagsFor('id');
+      const baseWhere = `1=1${availableSql}${ratingSql}${tags.sql}`;
+      const baseParams = [...ratingParams, ...tags.params];
       const orderBy =
         'artist COLLATE NOCASE, album COLLATE NOCASE, track_no, title COLLATE NOCASE';
       const { total, rows } = hideDuplicates
         ? this.searchDeduped(
             `SELECT ${TRACK_SELECT_COLUMNS} FROM tracks WHERE ${baseWhere}`,
             orderBy,
-            ratingParams,
+            baseParams,
             safeLimit,
             offset,
           )
@@ -518,7 +528,7 @@ export class LibraryService implements OnModuleInit {
             `SELECT ${TRACK_SELECT_COLUMNS} FROM tracks WHERE ${baseWhere}
              ORDER BY ${orderBy}
              LIMIT ? OFFSET ?`,
-            ratingParams,
+            baseParams,
             safeLimit,
             offset,
           );
@@ -534,9 +544,10 @@ export class LibraryService implements OnModuleInit {
     let total = 0;
     let rows: TrackRow[] = [];
     try {
-      const ftsWhere = `tracks_fts MATCH ? AND t.available = 1${ratingSql}`;
+      const tags = tagsFor('t.id');
+      const ftsWhere = `tracks_fts MATCH ? AND t.available = 1${ratingSql}${tags.sql}`;
       const ftsOrder = 'rank, t.artist COLLATE NOCASE, t.title COLLATE NOCASE';
-      const ftsParams = [match, ...ratingParams];
+      const ftsParams = [match, ...ratingParams, ...tags.params];
       if (hideDuplicates) {
         ({ total, rows } = this.searchDeduped(
           `SELECT ${TRACK_SELECT_COLUMNS.replace(/\b(\w+)/g, 't.$1')}, rank
@@ -566,9 +577,10 @@ export class LibraryService implements OnModuleInit {
     } catch (err) {
       this.logger.warn(`FTS query failed, falling back to LIKE: ${err}`);
       const like = `%${query.replaceAll('%', '\\%')}%`;
-      const likeWhere = `(title LIKE ? ESCAPE '\\' OR artist LIKE ? ESCAPE '\\' OR album LIKE ? ESCAPE '\\') AND available = 1${ratingSql}`;
+      const tags = tagsFor('id');
+      const likeWhere = `(title LIKE ? ESCAPE '\\' OR artist LIKE ? ESCAPE '\\' OR album LIKE ? ESCAPE '\\') AND available = 1${ratingSql}${tags.sql}`;
       const likeOrder = 'artist COLLATE NOCASE, title COLLATE NOCASE';
-      const likeParams = [like, like, like, ...ratingParams];
+      const likeParams = [like, like, like, ...ratingParams, ...tags.params];
       if (hideDuplicates) {
         ({ total, rows } = this.searchDeduped(
           `SELECT ${TRACK_SELECT_COLUMNS} FROM tracks WHERE ${likeWhere}`,
@@ -595,6 +607,35 @@ export class LibraryService implements OnModuleInit {
       total,
       page: safePage,
       limit: safeLimit,
+    };
+  }
+
+  orderedTrackIds(
+    q: string,
+    minRating?: number,
+    hideDuplicates = false,
+    tagKeys: string[] = [],
+  ): number[] {
+    const page = this.search(q, 1, 50_000, minRating, hideDuplicates, tagKeys);
+    return page.items.map((track) => track.id);
+  }
+
+  private tagFilterSql(
+    idExpr: string,
+    tagKeys: string[],
+  ): { sql: string; params: string[] } {
+    if (tagKeys.length === 0) {
+      return { sql: '', params: [] };
+    }
+    const placeholders = tagKeys.map(() => '?').join(', ');
+    return {
+      sql: ` AND ${idExpr} IN (
+        SELECT track_id FROM track_tag_names
+        WHERE name_key IN (${placeholders})
+        GROUP BY track_id
+        HAVING COUNT(DISTINCT name_key) = ${tagKeys.length}
+      )`,
+      params: tagKeys,
     };
   }
 

@@ -13,6 +13,7 @@ interface PlaylistItemListProps {
   dropLine?: DropLine | null;
   onShowCover?: (track: PlaylistItemDto['track']) => void;
   onApplySearchTerm?: (term: string) => void;
+  onManageTags?: (track: TrackDto) => void;
 }
 
 export function PlaylistItemList({
@@ -22,6 +23,7 @@ export function PlaylistItemList({
   dropLine = null,
   onShowCover,
   onApplySearchTerm,
+  onManageTags,
 }: PlaylistItemListProps) {
   return (
     <SortableContext
@@ -43,6 +45,7 @@ export function PlaylistItemList({
             )}
             onShowCover={onShowCover}
             onApplySearchTerm={onApplySearchTerm}
+            onManageTags={onManageTags}
           />
         ))}
       </ul>
@@ -57,6 +60,7 @@ function SortablePlaylistItem({
   dropLineClassName,
   onShowCover,
   onApplySearchTerm,
+  onManageTags,
 }: {
   item: PlaylistItemDto;
   onRemove: (itemId: number) => void;
@@ -64,6 +68,7 @@ function SortablePlaylistItem({
   dropLineClassName: string;
   onShowCover?: (track: PlaylistItemDto['track']) => void;
   onApplySearchTerm?: (term: string) => void;
+  onManageTags?: (track: TrackDto) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: playlistItemDragId(item.id),
@@ -98,6 +103,7 @@ function SortablePlaylistItem({
         removeAriaLabel="Remove from playlist"
         onShowCover={onShowCover}
         onApplySearchTerm={onApplySearchTerm}
+        onManageTags={onManageTags}
         labelMuted={!item.available}
         extras={
           !item.available ? <span className="badge warn">Missing</span> : undefined

@@ -1,9 +1,13 @@
+import { useEffect, useState } from 'react';
+import { tagKey } from '@karaokej/shared';
+import { api } from '../api';
 import { Modal } from './Modal';
 import { StarRating } from './StarRating';
 
 export interface LibraryFiltersDraft {
   minRating: number;
   hideDuplicates: boolean;
+  tags: string[];
 }
 
 interface LibraryFiltersModalProps {
@@ -23,6 +27,43 @@ export function LibraryFiltersModal({
   onCancel,
   closeOnBackdropClick,
 }: LibraryFiltersModalProps) {
+  const [catalog, setCatalog] = useState<string[]>([]);
+  const [tagQuery, setTagQuery] = useState('');
+
+  useEffect(() => {
+    if (!open) {
+      setTagQuery('');
+      return;
+    }
+    let cancelled = false;
+    void api.tags().then((list) => {
+      if (!cancelled) {
+        setCatalog(list.tags.map((tag) => tag.name));
+      }
+    }).catch(() => {
+      /* autocomplete stays empty */
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  const needle = tagQuery.trim().toLowerCase();
+  const suggestions = needle
+    ? catalog
+        .filter(
+          (name) =>
+            name.toLowerCase().startsWith(needle) &&
+            !draft.tags.some((chosen) => tagKey(chosen) === tagKey(name)),
+        )
+        .slice(0, 8)
+    : [];
+
+  const addTag = (name: string) => {
+    onDraftChange({ ...draft, tags: [...draft.tags, name] });
+    setTagQuery('');
+  };
+
   return (
     <Modal
       open={open}
@@ -34,6 +75,63 @@ export function LibraryFiltersModal({
       closeOnBackdropClick={closeOnBackdropClick}
     >
       <div className="filters-modal">
+        <div className="filters-modal-row filters-modal-tags">
+          <div>
+            <span className="filters-modal-label">Tags</span>
+            <p className="filters-modal-help">
+              A song matches when it has every chosen tag.
+            </p>
+          </div>
+          <div className="tag-filter">
+            {draft.tags.length > 0 ? (
+              <ul className="tag-filter-chips">
+                {draft.tags.map((name) => (
+                  <li key={tagKey(name)}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onDraftChange({
+                          ...draft,
+                          tags: draft.tags.filter((item) => tagKey(item) !== tagKey(name)),
+                        })
+                      }
+                    >
+                      {name} <span aria-hidden>×</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            <input
+              type="text"
+              value={tagQuery}
+              autoComplete="off"
+              aria-label="Filter by tag"
+              placeholder="Type a tag"
+              onChange={(event) => setTagQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Backspace' && tagQuery === '' && draft.tags.length > 0) {
+                  onDraftChange({ ...draft, tags: draft.tags.slice(0, -1) });
+                }
+                if (event.key === 'Enter' && suggestions[0]) {
+                  event.preventDefault();
+                  addTag(suggestions[0]);
+                }
+              }}
+            />
+            {suggestions.length > 0 ? (
+              <ul className="tag-filter-suggestions" role="listbox">
+                {suggestions.map((name) => (
+                  <li key={tagKey(name)}>
+                    <button type="button" onClick={() => addTag(name)}>
+                      {name}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        </div>
         <label className="filters-modal-row">
           <span className="filters-modal-label">Minimum rating</span>
           <StarRating
@@ -81,6 +179,7 @@ export function activeFilterCount(filters: LibraryFiltersDraft): number {
   if (filters.hideDuplicates) {
     count += 1;
   }
+  count += filters.tags.length;
   return count;
 }
 

@@ -28,6 +28,7 @@ interface PlaylistPaneProps {
   onPlayTrack: (track: TrackDto) => void;
   onShowCover?: (track: TrackDto) => void;
   onApplySearchTerm?: (term: string) => void;
+  onManageTags?: (track: TrackDto) => void;
   durationByTrackId?: ReadonlyMap<number, number>;
 }
 
@@ -46,6 +47,7 @@ export function PlaylistPane({
   onPlayTrack,
   onShowCover,
   onApplySearchTerm,
+  onManageTags,
   durationByTrackId,
 }: PlaylistPaneProps) {
   const [creating, setCreating] = useState(false);
@@ -262,6 +264,7 @@ export function PlaylistPane({
                   dropLine={dropLine}
                   onShowCover={onShowCover}
                   onApplySearchTerm={onApplySearchTerm}
+                  onManageTags={onManageTags}
                 />
               )}
             </div>

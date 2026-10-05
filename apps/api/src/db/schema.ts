@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS tracks (
   metadata_status TEXT NOT NULL DEFAULT 'ready',
   cover_group TEXT,
   musicbrainz_artist_id TEXT,
+  mood_extra TEXT,
   available INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
@@ -84,6 +85,7 @@ CREATE TABLE IF NOT EXISTS playback_state (
   volume REAL NOT NULL DEFAULT 1,
   player_client_id TEXT,
   seek_seq INTEGER NOT NULL DEFAULT 0,
+  loop_queue INTEGER NOT NULL DEFAULT 0,
   updated_at INTEGER NOT NULL
 );
 
@@ -195,4 +197,21 @@ CREATE TABLE IF NOT EXISTS artist_bios (
 );
 
 CREATE INDEX IF NOT EXISTS idx_artist_bios_mbid ON artist_bios(musicbrainz_id);
+
+CREATE TABLE IF NOT EXISTS managed_tags (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  name_key TEXT NOT NULL UNIQUE,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS track_tag_names (
+  track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+  name_key TEXT NOT NULL,
+  name TEXT NOT NULL,
+  PRIMARY KEY (track_id, name_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_track_tag_names_key ON track_tag_names(name_key);
 `;

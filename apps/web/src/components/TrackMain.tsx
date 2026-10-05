@@ -51,6 +51,9 @@ export function TrackMain({
           return <span key={`${segment.kind}-${index}`}>{segment.text}</span>;
         })}
       </span>
+      {track.tags.length > 0 ? (
+        <span className="track-tags">{track.tags.join(', ')}</span>
+      ) : null}
     </div>
   );
 }
@@ -58,6 +61,10 @@ export function TrackMain({
 export function isInteractiveTrackTarget(target: EventTarget | null): boolean {
   return (
     target instanceof Element &&
-    Boolean(target.closest('button, a, input'))
+    Boolean(
+      target.closest(
+        'button, a, input, .track-search-term, .icon-menu, .star-rating, .status-icon',
+      ),
+    )
   );
 }

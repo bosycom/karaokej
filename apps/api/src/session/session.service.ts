@@ -19,6 +19,7 @@ import {
 } from '../covers/cover-lookup';
 import { SettingsService } from '../settings/settings.service';
 import { KaraokeService } from '../karaoke/karaoke.service';
+import { loadManagedTagNames } from '../tags/tag-cache';
 
 @Injectable()
 export class SessionService implements OnModuleDestroy {
@@ -99,7 +100,12 @@ export class SessionService implements OnModuleDestroy {
         )
         .get(row.current_queue_item_id) as TrackRow | undefined;
       currentTrack = joined
-        ? trackToDto(joined, null, loadCoverInfoForTrack(this.db.raw, joined))
+        ? trackToDto(
+            joined,
+            null,
+            loadCoverInfoForTrack(this.db.raw, joined),
+            loadManagedTagNames(this.db.raw, [joined.id]).get(joined.id) ?? [],
+          )
         : null;
     }
     return {
@@ -110,6 +116,7 @@ export class SessionService implements OnModuleDestroy {
       volume: row.volume,
       playerClientId: row.player_client_id,
       seekSeq: row.seek_seq,
+      loopQueue: Boolean(row.loop_queue),
     };
   }
 
@@ -135,6 +142,10 @@ export class SessionService implements OnModuleDestroy {
 
     const stemByTrackId = loadStemRowsForTracks(this.db.raw, rows.map((row) => row.id));
     const coverByGroup = loadCoverInfoForTracks(this.db.raw, rows);
+    const tagsByTrack = loadManagedTagNames(
+      this.db.raw,
+      rows.map((row) => row.id),
+    );
 
     return rows.map((row) => ({
       id: row.queue_id,
@@ -144,6 +155,7 @@ export class SessionService implements OnModuleDestroy {
         row,
         resolveQueueStemStatus(row, stemByTrackId.get(row.id))?.status ?? null,
         coverInfoForTrack(coverByGroup, row),
+        tagsByTrack.get(row.id) ?? [],
       ),
       stem: resolveQueueStemStatus(row, stemByTrackId.get(row.id)),
     }));

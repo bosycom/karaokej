@@ -1,4 +1,12 @@
-import { FormEvent, ReactNode, useCallback, useEffect, useRef, useState } from 'react';
+import {
+  FormEvent,
+  ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   FiChevronLeft,
@@ -34,6 +42,8 @@ import { ScanModal } from '../components/ScanModal';
 import { ScanIssuesModal } from '../components/ScanIssuesModal';
 import { LyricSearchModal } from '../components/LyricSearchModal';
 import { TrackMetadataModal } from '../components/TrackMetadataModal';
+import { TagImportModal } from '../components/TagImportModal';
+import { TagPickerModal } from '../components/TagPickerModal';
 import { SearchHistoryModal } from '../components/SearchHistoryModal';
 import { SearchMissFallback } from '../components/SearchMissFallback';
 import { WorkspaceDnd } from '../components/WorkspaceDnd';
@@ -64,11 +74,15 @@ export function LibraryPage() {
   const [error, setError] = useState<string | null>(null);
   const [minRating, setMinRating] = useState(0);
   const [hideDuplicates, setHideDuplicates] = useState(false);
+  const [tagNames, setTagNames] = useState<string[]>([]);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filtersDraft, setFiltersDraft] = useState<LibraryFiltersDraft>({
     minRating: 0,
     hideDuplicates: false,
+    tags: [],
   });
+  const [tagTrack, setTagTrack] = useState<TrackDto | null>(null);
+  const [importTagNames, setImportTagNames] = useState<string[]>([]);
   const [playlistSummaries, setPlaylistSummaries] = useState<PlaylistSummaryDto[]>([]);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<number | null>(null);
   const [playlistDetail, setPlaylistDetail] = useState<PlaylistDetailDto | null>(null);
@@ -88,6 +102,57 @@ export function LibraryPage() {
   const [coverTrack, setCoverTrack] = useState<TrackDto | null>(null);
   const [scanOpen, setScanOpen] = useState(false);
   const limit = 15;
+  const [selectedTracks, setSelectedTracks] = useState<
+    Array<{ track: TrackDto; rank: number }>
+  >([]);
+
+  const selectedTrackIds = useMemo(
+    () => new Set(selectedTracks.map((entry) => entry.track.id)),
+    [selectedTracks],
+  );
+
+  const orderedSelectedTrackIds = useMemo(
+    () =>
+      [...selectedTracks]
+        .sort((a, b) => a.rank - b.rank)
+        .map((entry) => entry.track.id),
+    [selectedTracks],
+  );
+
+  const toggleTrackSelection = useCallback((track: TrackDto, rank: number) => {
+    setSelectedTracks((prev) => {
+      const index = prev.findIndex((entry) => entry.track.id === track.id);
+      if (index >= 0) {
+        return prev.filter((entry) => entry.track.id !== track.id);
+      }
+      return [...prev, { track, rank }];
+    });
+  }, []);
+
+  const clearExplorerSelection = useCallback(() => {
+    setSelectedTracks([]);
+  }, []);
+
+  useEffect(() => {
+    if (selectedTracks.length === 0) {
+      return;
+    }
+    void api
+      .orderedTrackIds(query, minRating, hideDuplicates, tagNames)
+      .then(({ ids }) => {
+        const idSet = new Set(ids);
+        setSelectedTracks((prev) => {
+          const byId = new Map(prev.map((entry) => [entry.track.id, entry]));
+          return ids
+            .filter((id) => byId.has(id))
+            .map((id, index) => {
+              const entry = byId.get(id)!;
+              return { track: entry.track, rank: index };
+            });
+        });
+      })
+      .catch(() => {});
+  }, [query, minRating, hideDuplicates, tagNames]);
 
   useEffect(() => {
     if (searchParams.get('scan') !== '1') {
@@ -104,9 +169,10 @@ export function LibraryPage() {
     p: number,
     rating = minRating,
     dedupe = hideDuplicates,
+    tags = tagNames,
   ) => {
     try {
-      const result = await api.tracks(q, p, limit, rating, dedupe);
+      const result = await api.tracks(q, p, limit, rating, dedupe, tags);
       setTracks(result.items);
       setTotal(result.total);
       setError(null);
@@ -124,8 +190,8 @@ export function LibraryPage() {
   };
 
   useEffect(() => {
-    void loadTracks(query, page, minRating, hideDuplicates);
-  }, [query, page, minRating, hideDuplicates]);
+    void loadTracks(query, page, minRating, hideDuplicates, tagNames);
+  }, [query, page, minRating, hideDuplicates, tagNames]);
 
   const loadPlaylists = useCallback(async () => {
     try {
@@ -164,16 +230,30 @@ export function LibraryPage() {
 
   useEffect(() => {
     if (prevSeparationRunning.current && !state.jobs.separation.running) {
-      void loadTracks(query, page, minRating, hideDuplicates);
+      void loadTracks(query, page, minRating, hideDuplicates, tagNames);
     }
     prevSeparationRunning.current = state.jobs.separation.running;
-  }, [state.jobs.separation.running, query, page, minRating, hideDuplicates]);
+  }, [state.jobs.separation.running, query, page, minRating, hideDuplicates, tagNames]);
 
   useEffect(() => {
     if (prevScanRunning.current && !state.jobs.scan.running) {
-      void loadTracks(query, page, minRating, hideDuplicates);
+      void loadTracks(query, page, minRating, hideDuplicates, tagNames);
       if (selectedPlaylistId != null) {
         void loadPlaylistDetail(selectedPlaylistId);
+      }
+      const message = state.jobs.scan.message ?? '';
+      const skipped =
+        message.startsWith('Scan cancelled') ||
+        message.startsWith('Scan interrupted') ||
+        message.startsWith('Scan failed');
+      if (!skipped) {
+        void api.unmanagedTags().then((unmanaged) => {
+          if (unmanaged.names.length > 0) {
+            setImportTagNames(unmanaged.names);
+          }
+        }).catch(() => {
+          /* the library list still reloads */
+        });
       }
       void api.libraryStatus().then((next) => {
         setStatus(next);
@@ -186,7 +266,7 @@ export function LibraryPage() {
       });
     }
     prevScanRunning.current = state.jobs.scan.running;
-  }, [state.jobs.scan.running, query, page, minRating, hideDuplicates, selectedPlaylistId, loadPlaylistDetail]);
+  }, [state.jobs.scan.running, query, page, minRating, hideDuplicates, tagNames, selectedPlaylistId, loadPlaylistDetail]);
 
   useEffect(() => {
     if (!state.jobs.scan.running) {
@@ -203,7 +283,7 @@ export function LibraryPage() {
     prevScanProgress.current = progress;
 
     const timeout = window.setTimeout(() => {
-      void loadTracks(query, page, minRating, hideDuplicates);
+      void loadTracks(query, page, minRating, hideDuplicates, tagNames);
     }, 2000);
     return () => window.clearTimeout(timeout);
   }, [
@@ -214,6 +294,7 @@ export function LibraryPage() {
     page,
     minRating,
     hideDuplicates,
+    tagNames,
   ]);
 
   useEffect(() => {
@@ -262,6 +343,7 @@ export function LibraryPage() {
     setQuery('');
     setMinRating(0);
     setHideDuplicates(false);
+    setTagNames([]);
     setPage(1);
   };
 
@@ -274,13 +356,14 @@ export function LibraryPage() {
     }
   };
 
-  const appliedFilters: LibraryFiltersDraft = { minRating, hideDuplicates };
+  const appliedFilters: LibraryFiltersDraft = { minRating, hideDuplicates, tags: tagNames };
   const filterCount = activeFilterCount(appliedFilters);
   const searchIsClear =
     inputValue === '' &&
     query === '' &&
     minRating === 0 &&
-    hideDuplicates === false;
+    hideDuplicates === false &&
+    tagNames.length === 0;
 
   const openFilters = () => {
     setFiltersDraft(appliedFilters);
@@ -290,6 +373,7 @@ export function LibraryPage() {
   const applyFilters = () => {
     setMinRating(filtersDraft.minRating);
     setHideDuplicates(filtersDraft.hideDuplicates);
+    setTagNames(filtersDraft.tags);
     setPage(1);
     setFiltersOpen(false);
   };
@@ -461,6 +545,17 @@ export function LibraryPage() {
     void (async () => {
       try {
         await api.shuffleQueue();
+        setError(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    })();
+  };
+
+  const handleToggleLoopQueue = (enabled: boolean) => {
+    void (async () => {
+      try {
+        await api.setLoopQueue(enabled);
         setError(null);
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
@@ -797,14 +892,18 @@ export function LibraryPage() {
         onPlayPlaylist={handlePlayPlaylist}
         onClearQueue={handleClearQueue}
         onShuffleQueue={handleShuffleQueue}
+        loopQueue={state.playback.loopQueue}
+        onToggleLoopQueue={handleToggleLoopQueue}
+        onExplorerBatchDrop={clearExplorerSelection}
         onPlaylistChanged={setPlaylistDetail}
         onPlaylistsRefresh={() => void loadPlaylists()}
         onPlayTrack={handlePlayTrack}
         onShowCover={setCoverTrack}
         onApplySearchTerm={applySearch}
+        onManageTags={setTagTrack}
         revealQueueItemId={revealQueueItemId}
         onRevealQueueItem={clearRevealQueueItem}
-        library={
+        library={({ activeTrackDragIds }) => (
           <LibraryExplorerPane>
             <div className="library-pane-scroll">
               {tracks.length === 0 && !query.trim() ? (
@@ -813,21 +912,38 @@ export function LibraryPage() {
                 <>
                   {tracks.length > 0 ? (
                     <ul className="track-list">
-                      {tracks.map((track) => (
-                        <DraggableTrackRow
-                          key={track.id}
-                          track={track}
-                          fetching={fetchingIds.has(track.id)}
-                          onFetchLyrics={(trackId) => void fetchTrackLyrics(trackId)}
-                          onRate={setTrackRating}
-                          onApplySearchTerm={applySearch}
-                          onPlay={handlePlayTrack}
-                          onEditMetadata={setMetadataTrack}
-                          onRemoveAiStem={handleRemoveAiStem}
-                          onDeleteFile={handleDeleteFile}
-                          onShowCover={setCoverTrack}
-                        />
-                      ))}
+                      {tracks.map((track, index) => {
+                        const rank = (page - 1) * limit + index;
+                        const selected = selectedTrackIds.has(track.id);
+                        const batchTrackIds = selected
+                          ? orderedSelectedTrackIds
+                          : [track.id];
+                        const batchDragging =
+                          activeTrackDragIds != null &&
+                          activeTrackDragIds.length > 1 &&
+                          selected &&
+                          activeTrackDragIds.includes(track.id);
+                        return (
+                          <DraggableTrackRow
+                            key={track.id}
+                            track={track}
+                            selected={selected}
+                            batchDragging={batchDragging}
+                            batchTrackIds={batchTrackIds}
+                            fetching={fetchingIds.has(track.id)}
+                            onFetchLyrics={(trackId) => void fetchTrackLyrics(trackId)}
+                            onRate={setTrackRating}
+                            onApplySearchTerm={applySearch}
+                            onPlay={handlePlayTrack}
+                            onEditMetadata={setMetadataTrack}
+                            onRemoveAiStem={handleRemoveAiStem}
+                            onDeleteFile={handleDeleteFile}
+                            onShowCover={setCoverTrack}
+                            onManageTags={setTagTrack}
+                            onToggleSelect={() => toggleTrackSelection(track, rank)}
+                          />
+                        );
+                      })}
                     </ul>
                   ) : null}
                   {query.trim() ? (
@@ -908,7 +1024,7 @@ export function LibraryPage() {
               </div>
             </div>
           </LibraryExplorerPane>
-        }
+        )}
       />
 
       <ScanModal
@@ -1039,6 +1155,45 @@ export function LibraryPage() {
         }}
         onClose={() => setHistoryOpen(false)}
       />
+
+      {tagTrack ? (
+        <TagPickerModal
+          mode="assign"
+          track={tagTrack}
+          onClose={() => setTagTrack(null)}
+          onSaved={(updated) => {
+            setTracks((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+            setPlaylistDetail((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    items: prev.items.map((item) =>
+                      item.track.id === updated.id ? { ...item, track: updated } : item,
+                    ),
+                  }
+                : prev,
+            );
+            const stillMatches = tagNames.every((name) =>
+              updated.tags.some((tag) => tag.toLowerCase() === name.toLowerCase()),
+            );
+            if (tagNames.length > 0 && !stillMatches) {
+              void loadTracks(query, page, minRating, hideDuplicates, tagNames);
+            }
+          }}
+        />
+      ) : null}
+      {importTagNames.length > 0 ? (
+        <TagImportModal
+          names={importTagNames}
+          onClose={() => setImportTagNames([])}
+          onImported={() => {
+            void loadTracks(query, page, minRating, hideDuplicates, tagNames);
+            if (selectedPlaylistId != null) {
+              void loadPlaylistDetail(selectedPlaylistId);
+            }
+          }}
+        />
+      ) : null}
 
       <LibraryFiltersModal
         open={filtersOpen}

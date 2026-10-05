@@ -38,6 +38,7 @@ describe('metadata-fields', () => {
       year: 1999,
       genres: ['Pop'],
       musicbrainzArtistId: null,
+      moodValues: [],
     });
     const b = { ...a, genres: ['Pop'] };
     expect(metadataEquals(a, b)).toBe(true);

@@ -28,6 +28,7 @@ const baseItem: QueueItemDto = {
     coverVersion: null,
     coverStatus: 'pending' as const,
     musicbrainzArtistId: null,
+    tags: [],
   },
   stem: null,
 };

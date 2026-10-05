@@ -51,6 +51,8 @@ export interface TrackDto {
   coverStatus: CoverStatus;
   /** MusicBrainz artist ID from file tags, when present. */
   musicbrainzArtistId: string | null;
+  /** Managed mood names on this song, alphabetical. */
+  tags: string[];
 }
 
 export interface TrackPageDto {
@@ -130,6 +132,7 @@ export interface PlaybackStateDto {
   volume: number;
   playerClientId: string | null;
   seekSeq: number;
+  loopQueue: boolean;
 }
 
 export type JobKind = 'scan' | 'lyrics' | 'download' | 'separation' | 'covers';
@@ -325,3 +328,59 @@ export interface PlaylistDetailDto {
 }
 
 export type PlaylistQueueMode = 'append' | 'replace';
+
+export interface ManagedTagDto {
+  id: number;
+  name: string;
+  songCount: number;
+}
+
+export interface TagListDto {
+  tags: ManagedTagDto[];
+}
+
+export interface TrackTagStateDto {
+  /** Managed names currently on the song. */
+  managed: string[];
+  /** Valid mood names on the file that are not in the managed list. */
+  embedded: string[];
+  /** Mood values that are not valid tag names and still occupy a slot. */
+  extraCount: number;
+}
+
+export interface TagFileFailureDto {
+  trackId: number;
+  path: string;
+  message: string;
+}
+
+export interface TagMutationResultDto {
+  tag: ManagedTagDto | null;
+  failures: TagFileFailureDto[];
+}
+
+export interface TagRenameResultDto {
+  conflict: boolean;
+  existingName?: string;
+  songCount?: number;
+  result?: TagMutationResultDto;
+}
+
+export interface UnmanagedTagsDto {
+  names: string[];
+}
+
+export interface ImportTagsResultDto {
+  imported: string[];
+  skipped: string[];
+}
+
+export {
+  MAX_MANAGED_TAGS,
+  MAX_TAG_NAME_LENGTH,
+  MAX_TAGS_PER_SONG,
+  parseTagName,
+  tagKey,
+  tagNameError,
+} from './tag-names';
+export type { ParsedTagName } from './tag-names';

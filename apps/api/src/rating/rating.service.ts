@@ -13,6 +13,7 @@ import { LibraryService } from '../library/library.service';
 import { SessionService } from '../session/session.service';
 import { isRating } from './rating-scale';
 import { writeRatingToFile } from './rating-tags';
+import { managedTagsForTrack } from '../tags/tag-cache';
 
 @Injectable()
 export class RatingService {
@@ -56,6 +57,11 @@ export class RatingService {
     if (!updated) {
       throw new NotFoundException('Track not found');
     }
-    return trackToDto(updated, null, loadCoverInfoForTrack(this.db.raw, updated));
+    return trackToDto(
+      updated,
+      null,
+      loadCoverInfoForTrack(this.db.raw, updated),
+      managedTagsForTrack(this.db.raw, updated.id),
+    );
   }
 }

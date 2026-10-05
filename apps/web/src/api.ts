@@ -20,8 +20,15 @@ import {
   QueueItemDto,
   RandomArtistDto,
   SessionStateDto,
+  ImportTagsResultDto,
+  ManagedTagDto,
+  TagListDto,
+  TagMutationResultDto,
+  TagRenameResultDto,
   TrackDto,
   TrackMetadataDto,
+  TrackTagStateDto,
+  UnmanagedTagsDto,
   TrackMetadataUpdateDto,
   TrackPageDto,
   TrackPathDto,
@@ -123,6 +130,7 @@ export const api = {
     limit = 15,
     minRating = 0,
     hideDuplicates = false,
+    tagNames: string[] = [],
   ) => {
     const params = new URLSearchParams({
       q,
@@ -135,8 +143,75 @@ export const api = {
     if (hideDuplicates) {
       params.set('hideDuplicates', '1');
     }
+    for (const tag of tagNames) {
+      params.append('tags', tag);
+    }
     return request<TrackPageDto>(`/api/tracks?${params}`);
   },
+  orderedTrackIds: (
+    q: string,
+    minRating = 0,
+    hideDuplicates = false,
+    tagNames: string[] = [],
+  ) => {
+    const params = new URLSearchParams({ q, orderedIds: '1' });
+    if (minRating > 0) {
+      params.set('minRating', String(minRating));
+    }
+    if (hideDuplicates) {
+      params.set('hideDuplicates', '1');
+    }
+    for (const tag of tagNames) {
+      params.append('tags', tag);
+    }
+    return request<{ ids: number[] }>(`/api/tracks?${params}`);
+  },
+  addTracksToQueue: (
+    trackIds: number[],
+    placement: 'end' | 'after_current' = 'end',
+    beforeId?: number | null,
+  ) =>
+    request<QueueItemDto[]>('/api/queue', {
+      method: 'POST',
+      body: JSON.stringify({
+        trackIds,
+        placement,
+        ...(beforeId != null ? { beforeId } : {}),
+      }),
+    }),
+  tags: () => request<TagListDto>('/api/tags'),
+  createTag: (name: string) =>
+    request<ManagedTagDto>('/api/tags', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }),
+  renameTag: async (id: number, name: string, merge: boolean) => {
+    const response = await fetch(`/api/tags/${id}/rename`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, merge }),
+    });
+    const body = (await response.json()) as TagRenameResultDto & { message?: string };
+    if (!response.ok) {
+      throw new Error(body.message ?? response.statusText);
+    }
+    return body;
+  },
+  deleteTag: (id: number) =>
+    request<TagMutationResultDto>(`/api/tags/${id}`, { method: 'DELETE' }),
+  unmanagedTags: () => request<UnmanagedTagsDto>('/api/tags/unmanaged'),
+  importTags: (names: string[]) =>
+    request<ImportTagsResultDto>('/api/tags/import', {
+      method: 'POST',
+      body: JSON.stringify({ names }),
+    }),
+  trackTags: (trackId: number) =>
+    request<TrackTagStateDto>(`/api/tracks/${trackId}/tags`),
+  assignTrackTags: (trackId: number, names: string[]) =>
+    request<TrackDto>(`/api/tracks/${trackId}/tags`, {
+      method: 'PUT',
+      body: JSON.stringify({ names }),
+    }),
   setTrackRating: (trackId: number, rating: number) =>
     request<TrackDto>(`/api/tracks/${trackId}/rating`, {
       method: 'PUT',
@@ -208,6 +283,11 @@ export const api = {
       body: JSON.stringify({ volume }),
     }),
   skip: () => request('/api/playback/skip', { method: 'POST' }),
+  setLoopQueue: (enabled: boolean) =>
+    request('/api/playback/loop', {
+      method: 'POST',
+      body: JSON.stringify({ enabled }),
+    }),
   ended: (clientId: string) =>
     request('/api/playback/ended', {
       method: 'POST',
@@ -261,6 +341,18 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({
         trackId,
+        ...(beforeItemId != null ? { beforeItemId } : {}),
+      }),
+    }),
+  addTracksToPlaylist: (
+    playlistId: number,
+    trackIds: number[],
+    beforeItemId?: number | null,
+  ) =>
+    request<PlaylistDetailDto>(`/api/playlists/${playlistId}/items`, {
+      method: 'POST',
+      body: JSON.stringify({
+        trackIds,
         ...(beforeItemId != null ? { beforeItemId } : {}),
       }),
     }),
@@ -339,6 +431,7 @@ export const emptySession: SessionStateDto = {
     volume: 1,
     playerClientId: null,
     seekSeq: 0,
+    loopQueue: false,
   },
   queue: [],
   jobs: {
