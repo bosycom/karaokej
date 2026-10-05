@@ -13,7 +13,7 @@ import {
   useSensors,
 } from '@dnd-kit/core';
 import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
-import { FiShuffle, FiTrash2 } from 'react-icons/fi';
+import { FiRepeat, FiShuffle, FiTrash2 } from 'react-icons/fi';
 import { PlaylistDetailDto, PlaylistItemDto, PlaylistSummaryDto, QueueItemDto, TrackDto } from '@karaokej/shared';
 import { api } from '../api';
 import {
@@ -51,7 +51,9 @@ interface WorkspaceDndProps {
   tracks: TrackDto[];
   queue: QueueItemDto[];
   currentQueueItemId: number | null;
-  library: ReactNode;
+  library:
+    | ReactNode
+    | ((ctx: { activeTrackDragIds: number[] | null }) => ReactNode);
   playlistSummaries: PlaylistSummaryDto[];
   selectedPlaylistId: number | null;
   playlistDetail: PlaylistDetailDto | null;
@@ -64,16 +66,20 @@ interface WorkspaceDndProps {
   onPlayTrack: (track: TrackDto) => void;
   onClearQueue: () => void;
   onShuffleQueue: () => void;
+  onToggleLoopQueue: (enabled: boolean) => void;
+  loopQueue: boolean;
+  onExplorerBatchDrop?: () => void;
   onPlaylistChanged: (detail: PlaylistDetailDto) => void;
   onPlaylistsRefresh: () => void;
   onShowCover?: (track: TrackDto) => void;
   onApplySearchTerm?: (term: string) => void;
+  onManageTags?: (track: TrackDto) => void;
   revealQueueItemId?: number | null;
   onRevealQueueItem?: () => void;
 }
 
 type ActiveDrag =
-  | { kind: 'track'; track: TrackDto }
+  | { kind: 'track'; track: TrackDto; trackIds: number[] }
   | { kind: 'queue'; item: QueueItemDto }
   | { kind: 'playlist-item'; item: PlaylistItemDto };
 
@@ -94,10 +100,14 @@ export function WorkspaceDnd({
   onPlayTrack,
   onClearQueue,
   onShuffleQueue,
+  onToggleLoopQueue,
+  loopQueue,
+  onExplorerBatchDrop,
   onPlaylistChanged,
   onPlaylistsRefresh,
   onShowCover,
   onApplySearchTerm,
+  onManageTags,
   revealQueueItemId = null,
   onRevealQueueItem,
 }: WorkspaceDndProps) {
@@ -153,8 +163,15 @@ export function WorkspaceDnd({
     }
     if (parsed?.kind === 'track') {
       const track = tracks.find((entry) => entry.id === parsed.id);
+      const payload = event.active.data.current as { trackIds?: number[] } | undefined;
+      const trackIds =
+        payload?.trackIds && payload.trackIds.length > 0
+          ? payload.trackIds
+          : track
+            ? [track.id]
+            : [];
       if (track) {
-        setActive({ kind: 'track', track });
+        setActive({ kind: 'track', track, trackIds });
       }
     }
   };
@@ -235,16 +252,29 @@ export function WorkspaceDnd({
       return;
     }
 
+    const draggedTrackIds =
+      from.kind === 'track'
+        ? ((event.active.data.current as { trackIds?: number[] } | undefined)?.trackIds ??
+          [from.id])
+        : [];
+
     if (from.kind === 'track') {
       const playlistId = over ? playlistIdForAccept(over.id, selectedPlaylistId) : null;
       if (playlistId != null) {
         const beforeItemId =
           insertLine?.list === 'playlist' ? insertLine.beforeId : null;
-        void api.addToPlaylist(playlistId, from.id, beforeItemId).then((detail) => {
+        const add =
+          draggedTrackIds.length > 1
+            ? api.addTracksToPlaylist(playlistId, draggedTrackIds, beforeItemId)
+            : api.addToPlaylist(playlistId, from.id, beforeItemId);
+        void add.then((detail) => {
           if (selectedPlaylistId === playlistId) {
             onPlaylistChanged(detail);
           }
           onPlaylistsRefresh();
+          if (draggedTrackIds.length > 1) {
+            onExplorerBatchDrop?.();
+          }
         });
         return;
       }
@@ -252,7 +282,15 @@ export function WorkspaceDnd({
 
     if (from.kind === 'track' && (to.kind === 'queue' || to.kind === 'drop')) {
       const beforeId = insertLine?.list === 'queue' ? insertLine.beforeId : null;
-      void api.addToQueue(from.id, 'end', beforeId);
+      const add =
+        draggedTrackIds.length > 1
+          ? api.addTracksToQueue(draggedTrackIds, 'end', beforeId)
+          : api.addToQueue(from.id, 'end', beforeId);
+      void add.then(() => {
+        if (draggedTrackIds.length > 1) {
+          onExplorerBatchDrop?.();
+        }
+      });
       return;
     }
 
@@ -369,7 +407,12 @@ export function WorkspaceDnd({
     >
       <WorkspaceAccordionProvider>
         <div className="workspace workspace-three">
-          {library}
+          {typeof library === 'function'
+            ? library({
+                activeTrackDragIds:
+                  active?.kind === 'track' ? active.trackIds : null,
+              })
+            : library}
           <PlaylistPane
             summaries={playlistSummaries}
             selectedId={selectedPlaylistId}
@@ -385,6 +428,7 @@ export function WorkspaceDnd({
             onPlayTrack={onPlayTrack}
             onShowCover={onShowCover}
             onApplySearchTerm={onApplySearchTerm}
+            onManageTags={onManageTags}
             durationByTrackId={durationByTrackId}
           />
           <QueuePane
@@ -395,8 +439,11 @@ export function WorkspaceDnd({
             dropLine={dropLine?.list === 'queue' ? dropLine : null}
             onClearQueue={onClearQueue}
             onShuffleQueue={onShuffleQueue}
+            loopQueue={loopQueue}
+            onToggleLoopQueue={onToggleLoopQueue}
             onShowCover={onShowCover}
             onApplySearchTerm={onApplySearchTerm}
+            onManageTags={onManageTags}
             revealQueueItemId={revealQueueItemId}
             onRevealQueueItem={onRevealQueueItem}
           />
@@ -415,10 +462,18 @@ export function WorkspaceDnd({
         ) : null}
         {active?.kind === 'track' ? (
           <div className="track-overlay">
-            <strong>{active.track.title}</strong>
+            <strong>
+              {active.trackIds.length > 1
+                ? `${active.trackIds.length} songs`
+                : active.track.title}
+            </strong>
             <span>
-              {formatTrackSubtitle(active.track)}
-              {active.track.durationMs != null ? ` · ${formatDuration(active.track.durationMs)}` : ''}
+              {active.trackIds.length > 1
+                ? `Starting with ${active.track.title}`
+                : formatTrackSubtitle(active.track)}
+              {active.trackIds.length === 1 && active.track.durationMs != null
+                ? ` · ${formatDuration(active.track.durationMs)}`
+                : ''}
             </span>
           </div>
         ) : null}
@@ -449,8 +504,11 @@ function QueuePane({
   dropLine,
   onClearQueue,
   onShuffleQueue,
+  loopQueue,
+  onToggleLoopQueue,
   onShowCover,
   onApplySearchTerm,
+  onManageTags,
   revealQueueItemId,
   onRevealQueueItem,
 }: {
@@ -463,8 +521,11 @@ function QueuePane({
   onShuffleQueue: () => void;
   onShowCover?: (track: TrackDto) => void;
   onApplySearchTerm?: (term: string) => void;
+  onManageTags?: (track: TrackDto) => void;
   revealQueueItemId?: number | null;
   onRevealQueueItem?: () => void;
+  loopQueue: boolean;
+  onToggleLoopQueue: (enabled: boolean) => void;
 }) {
   const { setNodeRef } = useDroppable({ id: QUEUE_DROPPABLE });
   const { positionMs, liveAudioDurationMs } = useSession();
@@ -536,6 +597,16 @@ function QueuePane({
           <button
             type="button"
             className="icon-btn"
+            title={loopQueue ? 'Loop queue on' : 'Loop queue off'}
+            aria-label={loopQueue ? 'Loop queue on' : 'Loop queue off'}
+            aria-pressed={loopQueue}
+            onClick={() => onToggleLoopQueue(!loopQueue)}
+          >
+            <FiRepeat aria-hidden />
+          </button>
+          <button
+            type="button"
+            className="icon-btn"
             title={shuffleLabel}
             aria-label={shuffleLabel}
             disabled={!shuffleEnabled}
@@ -567,6 +638,7 @@ function QueuePane({
             dropLine={dropLine}
             onShowCover={onShowCover}
             onApplySearchTerm={onApplySearchTerm}
+            onManageTags={onManageTags}
             revealQueueItemId={revealQueueItemId}
             onRevealQueueItem={onRevealQueueItem}
           />

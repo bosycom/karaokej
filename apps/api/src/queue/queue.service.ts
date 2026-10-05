@@ -1,6 +1,7 @@
 import { Inject, Injectable, NotFoundException, forwardRef } from '@nestjs/common';
 import { QueueItemDto } from '@karaokej/shared';
 import { DbService } from '../db/db.service';
+import { PlaybackService } from '../playback/playback.service';
 import { SessionService } from '../session/session.service';
 
 @Injectable()
@@ -9,6 +10,8 @@ export class QueueService {
     private readonly db: DbService,
     @Inject(forwardRef(() => SessionService))
     private readonly session: SessionService,
+    @Inject(forwardRef(() => PlaybackService))
+    private readonly playback: PlaybackService,
   ) {}
 
   list(): QueueItemDto[] {
@@ -20,19 +23,25 @@ export class QueueService {
     placement: 'end' | 'after_current' = 'end',
     beforeId?: number,
   ): QueueItemDto[] {
-    const track = this.db.raw
-      .prepare(`SELECT id FROM tracks WHERE id = ? AND available = 1`)
-      .get(trackId) as { id: number } | undefined;
-    if (!track) {
+    return this.addTracks([trackId], placement, beforeId);
+  }
+
+  addTracks(
+    trackIds: number[],
+    placement: 'end' | 'after_current' = 'end',
+    beforeId?: number,
+  ): QueueItemDto[] {
+    const validated = this.validateAvailableTrackIds(trackIds);
+    if (validated.length === 0) {
       throw new NotFoundException('Track not found');
     }
     if (beforeId != null) {
-      return this.insertTrackBefore(trackId, beforeId);
+      return this.insertTracksBefore(validated, beforeId);
     }
     if (placement === 'after_current') {
-      return this.insertTrackAfterCurrent(trackId);
+      return this.insertTracksAfterCurrent(validated);
     }
-    return this.insertTracks([trackId], false);
+    return this.insertTracks(validated, false);
   }
 
   appendTracks(trackIds: number[], startPlaying: boolean): QueueItemDto[] {
@@ -133,22 +142,24 @@ export class QueueService {
     return this.list();
   }
 
-  private insertTrackBefore(trackId: number, beforeId: number): QueueItemDto[] {
+  private insertTracksBefore(trackIds: number[], beforeId: number): QueueItemDto[] {
     const before = this.db.raw
       .prepare(`SELECT id, position FROM queue_items WHERE id = ?`)
       .get(beforeId) as { id: number; position: number } | undefined;
     if (!before) {
-      return this.insertTracks([trackId], false);
+      return this.insertTracks(trackIds, false);
     }
+    const now = Date.now();
     const tx = this.db.raw.transaction(() => {
       this.db.raw
-        .prepare(`UPDATE queue_items SET position = position + 1 WHERE position >= ?`)
-        .run(before.position);
-      this.db.raw
-        .prepare(
-          `INSERT INTO queue_items (track_id, position, added_at) VALUES (?, ?, ?)`,
-        )
-        .run(trackId, before.position, Date.now());
+        .prepare(`UPDATE queue_items SET position = position + ? WHERE position >= ?`)
+        .run(trackIds.length, before.position);
+      const insert = this.db.raw.prepare(
+        `INSERT INTO queue_items (track_id, position, added_at) VALUES (?, ?, ?)`,
+      );
+      trackIds.forEach((trackId, index) => {
+        insert.run(trackId, before.position + index, now);
+      });
     });
     tx();
     this.reindex();
@@ -156,29 +167,32 @@ export class QueueService {
     return this.list();
   }
 
-  private insertTrackAfterCurrent(trackId: number): QueueItemDto[] {
+  private insertTracksAfterCurrent(trackIds: number[]): QueueItemDto[] {
     const playback = this.db.raw
       .prepare(`SELECT current_queue_item_id FROM playback_state WHERE id = 1`)
       .get() as { current_queue_item_id: number | null };
     const currentId = playback.current_queue_item_id;
     if (!currentId) {
-      return this.insertTracks([trackId], false);
+      return this.insertTracks(trackIds, false);
     }
     const current = this.db.raw
       .prepare(`SELECT id, position FROM queue_items WHERE id = ?`)
       .get(currentId) as { id: number; position: number } | undefined;
     if (!current) {
-      return this.insertTracks([trackId], false);
+      return this.insertTracks(trackIds, false);
     }
+    const insertAt = current.position + 1;
+    const now = Date.now();
     const tx = this.db.raw.transaction(() => {
       this.db.raw
-        .prepare(`UPDATE queue_items SET position = position + 1 WHERE position > ?`)
-        .run(current.position);
-      this.db.raw
-        .prepare(
-          `INSERT INTO queue_items (track_id, position, added_at) VALUES (?, ?, ?)`,
-        )
-        .run(trackId, current.position + 1, Date.now());
+        .prepare(`UPDATE queue_items SET position = position + ? WHERE position >= ?`)
+        .run(trackIds.length, insertAt);
+      const insert = this.db.raw.prepare(
+        `INSERT INTO queue_items (track_id, position, added_at) VALUES (?, ?, ?)`,
+      );
+      trackIds.forEach((trackId, index) => {
+        insert.run(trackId, insertAt + index, now);
+      });
     });
     tx();
     this.reindex();
@@ -240,7 +254,10 @@ export class QueueService {
       .prepare(`SELECT current_queue_item_id FROM playback_state WHERE id = 1`)
       .get() as { current_queue_item_id: number | null };
 
-    if (current.current_queue_item_id === id) {
+    const removingCurrent = current.current_queue_item_id === id;
+    const hadNext = removingCurrent ? Boolean(this.nextItemAfter(id)) : false;
+
+    if (removingCurrent) {
       const next = this.nextItemAfter(id);
       this.db.raw
         .prepare(
@@ -251,8 +268,35 @@ export class QueueService {
 
     this.db.raw.prepare(`DELETE FROM queue_items WHERE id = ?`).run(id);
     this.reindex();
+    if (removingCurrent && !hadNext) {
+      this.playback.tryLoopWrapAfterLastItem();
+    }
     this.session.broadcast();
     return this.list();
+  }
+
+  shuffleEntireQueue(): void {
+    const items = this.db.raw
+      .prepare(`SELECT id FROM queue_items ORDER BY position ASC, id ASC`)
+      .all() as Array<{ id: number }>;
+    if (items.length < 2) {
+      return;
+    }
+    const shuffled = fisherYatesShuffle(items.map((item) => item.id));
+    const update = this.db.raw.prepare(
+      `UPDATE queue_items SET position = ? WHERE id = ?`,
+    );
+    const tx = this.db.raw.transaction(() => {
+      shuffled.forEach((itemId, index) => update.run(index + 1, itemId));
+    });
+    tx();
+  }
+
+  firstQueueItemId(): number | null {
+    const first = this.db.raw
+      .prepare(`SELECT id FROM queue_items ORDER BY position ASC, id ASC LIMIT 1`)
+      .get() as { id: number } | undefined;
+    return first?.id ?? null;
   }
 
   shuffle(): QueueItemDto[] {

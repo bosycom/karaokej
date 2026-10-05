@@ -27,7 +27,8 @@ describe('QueueService.shuffle', () => {
   beforeEach(() => {
     ({ db, cleanup } = createTestDb());
     const session = createMockSession(db);
-    queue = new QueueService(db as never, session);
+    const playback = { tryLoopWrapAfterLastItem: vi.fn() };
+    queue = new QueueService(db as never, session, playback as never);
     trackA = insertTrack(db, {
       relativePath: 'a/song-a.mp3',
       title: 'Song A',
@@ -167,7 +168,8 @@ describe('QueueService.add placement', () => {
   beforeEach(() => {
     ({ db, cleanup } = createTestDb());
     const session = createMockSession(db);
-    queue = new QueueService(db as never, session);
+    const playback = { tryLoopWrapAfterLastItem: vi.fn() };
+    queue = new QueueService(db as never, session, playback as never);
     trackA = insertTrack(db, {
       relativePath: 'a/song-a.mp3',
       title: 'Song A',
@@ -281,6 +283,23 @@ describe('QueueService.add placement', () => {
       trackA,
       trackB,
       trackNew,
+    ]);
+  });
+
+  it('inserts multiple tracks in order before a queue item', () => {
+    queue.add(trackA);
+    queue.add(trackB);
+    queue.add(trackC);
+    const before = queue.list()[2]!;
+
+    const after = queue.addTracks([trackNew, trackD], 'end', before.id);
+
+    expect(after.map((item) => item.track.id)).toEqual([
+      trackA,
+      trackB,
+      trackNew,
+      trackD,
+      trackC,
     ]);
   });
 });

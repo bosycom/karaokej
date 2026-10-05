@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException, forwardRef } from '@nestjs/common';
 import { PlaybackStateDto } from '@karaokej/shared';
 import { DbService } from '../db/db.service';
 import { SeparationService } from '../karaoke/separation.service';
@@ -10,9 +10,12 @@ import { SettingsService } from '../settings/settings.service';
 export class PlaybackService {
   constructor(
     private readonly db: DbService,
+    @Inject(forwardRef(() => SessionService))
     private readonly session: SessionService,
+    @Inject(forwardRef(() => QueueService))
     private readonly queue: QueueService,
     private readonly settings: SettingsService,
+    @Inject(forwardRef(() => SeparationService))
     private readonly separation: SeparationService,
   ) {}
 
@@ -88,7 +91,13 @@ export class PlaybackService {
       return this.get();
     }
     const next = this.queue.nextItemAfter(row.current_queue_item_id);
-    this.setCurrent(next?.id ?? null, next ? 'playing' : 'idle');
+    if (next) {
+      this.setCurrent(next.id, 'playing');
+    } else if (this.isLoopQueueEnabled()) {
+      this.wrapQueueAndPlayFirst();
+    } else {
+      this.setCurrent(null, 'idle');
+    }
     this.session.broadcast();
     return this.get();
   }
@@ -128,6 +137,45 @@ export class PlaybackService {
   claimPlayer(clientId: string): PlaybackStateDto {
     this.session.claimPlayer(clientId);
     return this.get();
+  }
+
+  setLoopQueue(enabled: boolean): PlaybackStateDto {
+    this.db.raw
+      .prepare(
+        `UPDATE playback_state SET loop_queue = ?, updated_at = ? WHERE id = 1`,
+      )
+      .run(enabled ? 1 : 0, Date.now());
+    this.session.broadcast();
+    return this.get();
+  }
+
+  isLoopQueueEnabled(): boolean {
+    const row = this.db.raw
+      .prepare(`SELECT loop_queue FROM playback_state WHERE id = 1`)
+      .get() as { loop_queue: number };
+    return Boolean(row.loop_queue);
+  }
+
+  tryLoopWrapAfterLastItem(): void {
+    if (!this.isLoopQueueEnabled()) {
+      return;
+    }
+    this.wrapQueueAndPlayFirst();
+  }
+
+  private wrapQueueAndPlayFirst(): void {
+    const firstBefore = this.queue.firstQueueItemId();
+    if (firstBefore == null) {
+      this.setCurrent(null, 'idle');
+      return;
+    }
+    this.queue.shuffleEntireQueue();
+    const first = this.queue.firstQueueItemId();
+    if (first == null) {
+      this.setCurrent(null, 'idle');
+      return;
+    }
+    this.setCurrent(first, 'playing');
   }
 
   private ensureCurrent(): PlaybackStateDto {

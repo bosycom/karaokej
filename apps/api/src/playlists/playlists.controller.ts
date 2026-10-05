@@ -50,15 +50,21 @@ export class PlaylistsController {
   @Post(':id/items')
   addItem(
     @Param('id', ParseIntPipe) id: number,
-    @Body() body: { trackId?: number; beforeItemId?: number },
+    @Body() body: { trackId?: number; trackIds?: number[]; beforeItemId?: number },
   ) {
-    if (!body?.trackId) {
-      throw new BadRequestException('trackId is required');
-    }
     const beforeItemId =
       body.beforeItemId != null && Number.isFinite(Number(body.beforeItemId))
         ? Number(body.beforeItemId)
         : undefined;
+    const trackIds =
+      body.trackIds?.filter((trackId) => Number.isFinite(Number(trackId))).map(Number) ??
+      [];
+    if (trackIds.length > 0) {
+      return this.playlists.addItems(id, trackIds, beforeItemId);
+    }
+    if (!body?.trackId) {
+      throw new BadRequestException('trackId is required');
+    }
     return this.playlists.addItem(id, Number(body.trackId), beforeItemId);
   }
 

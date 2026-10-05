@@ -23,16 +23,26 @@ export class QueueController {
   @Post()
   add(
     @Body()
-    body: { trackId?: number; placement?: 'end' | 'after_current'; beforeId?: number },
+    body: {
+      trackId?: number;
+      trackIds?: number[];
+      placement?: 'end' | 'after_current';
+      beforeId?: number;
+    },
   ) {
-    if (!body?.trackId) {
-      return this.queue.list();
-    }
     const beforeId =
       body.beforeId != null && Number.isFinite(Number(body.beforeId))
         ? Number(body.beforeId)
         : undefined;
     const placement = body.placement === 'after_current' ? 'after_current' : 'end';
+    const trackIds =
+      body.trackIds?.filter((id) => Number.isFinite(Number(id))).map(Number) ?? [];
+    if (trackIds.length > 0) {
+      return this.queue.addTracks(trackIds, placement, beforeId);
+    }
+    if (!body?.trackId) {
+      return this.queue.list();
+    }
     return this.queue.add(Number(body.trackId), placement, beforeId);
   }
 

@@ -35,6 +35,11 @@ export class PlaybackController {
     return this.playback.skip();
   }
 
+  @Post('loop')
+  setLoop(@Body() body: { enabled?: boolean }) {
+    return this.playback.setLoopQueue(Boolean(body?.enabled));
+  }
+
   @Post('ended')
   ended(@Body() body: { clientId?: string }) {
     return this.playback.ended(body?.clientId);

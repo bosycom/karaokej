@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { NotFoundException } from '@nestjs/common';
 import { PlaylistsService } from './playlists.service';
 import { QueueService } from '../queue/queue.service';
@@ -19,7 +19,8 @@ describe('PlaylistsService', () => {
   beforeEach(() => {
     ({ db, cleanup } = createTestDb());
     const session = createMockSession(db);
-    queue = new QueueService(db as never, session);
+    const playback = { tryLoopWrapAfterLastItem: vi.fn() };
+    queue = new QueueService(db as never, session, playback as never);
     playlists = new PlaylistsService(db as never, queue);
     library = new LibraryService(
       db as never,
@@ -333,6 +334,19 @@ describe('PlaylistsService', () => {
 
     expect(queue.list()).toHaveLength(0);
     expect(playlists.get(playlist.id).items).toHaveLength(1);
+  });
+
+  it('adds multiple tracks to a playlist in order', () => {
+    const playlist = playlists.create({ name: 'Batch' });
+    playlists.addItem(playlist.id, trackA);
+
+    const detail = playlists.addItems(playlist.id, [trackB, trackA]);
+
+    expect(detail.items.map((item) => item.track.id)).toEqual([
+      trackA,
+      trackB,
+      trackA,
+    ]);
   });
 
   it('preserves playlist references when rebasing catalogue paths in place', () => {
